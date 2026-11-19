@@ -254,6 +254,14 @@ body.selecting { padding-bottom: 120px; }
 .twin .tw small { color: var(--accent); margin-left: 6px; }
 .tripadd label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--muted); font-weight: 600; flex: 1 1 90px; min-width: 0; }
 .tripadd input { font: 15px var(--font-body); color: var(--fg); background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; padding: 7px 8px; min-width: 0; width: 100%; box-sizing: border-box; }
+#tripAdd { display: flex; flex-direction: column; flex-wrap: nowrap; align-items: stretch; gap: 0; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 2px 14px 14px; }
+#tripAdd > label { flex: none; flex-direction: row; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--line); font: 400 16px var(--font-body); color: var(--fg); }
+#tripAdd > label input { width: auto; flex: 0 1 190px; min-width: 150px; font-size: 16px; padding: 8px 10px; }
+#tripAdd > label .tpick { flex: none; gap: 6px; }
+#tripAdd > label .tpick select { flex: none; min-width: 58px; font-size: 16px; padding: 8px 10px; text-align: center; }
+#tripAdd > .btn { margin-top: 14px; width: 100%; justify-content: center; }
+.twin .tw .twd { display: block; font-weight: 600; }
+.twin .tw .twt { display: block; color: var(--muted); font-size: 15px; margin-top: 2px; font-variant-numeric: tabular-nums; }
 .twin { display: flex; justify-content: space-between; align-items: center; gap: 10px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; margin-bottom: 6px; }
 .twin .x { background: none; border: 0; color: var(--bad); font-size: 15px; cursor: pointer; padding: 4px 6px; }
 .tday { display: flex; flex-direction: column; gap: 8px; }
@@ -2418,7 +2426,7 @@ footer { color: var(--muted); font-size: 12.5px; display: flex; justify-content:
     $("tripTitle").textContent = `Trip plan · ${c.name}`;
     $("tripBack").textContent = `‹ ${c.name}`;
     const wins = ((c.trip || {}).windows || []);
-    $("tripWins").innerHTML = wins.length ? wins.map((w) => `<div class="twin${tripEdit === w.id ? " editing" : ""}"><button class="tw" type="button" data-edit="${esc(w.id)}">${esc(tripDay(w.date))} · ${esc(fmt12(w.from))} – ${esc(fmt12(w.to))}<small>${tripEdit === w.id ? "Changing…" : "Edit"}</small></button><button class="x" type="button" data-id="${esc(w.id)}" aria-label="Remove this time">Remove</button></div>`).join("") : `<div class="note">Add each block of time you can go out shooting, e.g. Saturday 5:30–10 AM and 5–9 PM. Times are local time in ${esc(c.name)}.</div>`;
+    $("tripWins").innerHTML = wins.length ? wins.map((w) => `<div class="twin${tripEdit === w.id ? " editing" : ""}"><button class="tw" type="button" data-edit="${esc(w.id)}"><span class="twd">${esc(tripDay(w.date))}</span><span class="twt">${esc(fmt12(w.from))} – ${esc(fmt12(w.to))}<small>${tripEdit === w.id ? "Changing…" : "Edit"}</small></span></button><button class="x" type="button" data-id="${esc(w.id)}" aria-label="Remove this time">Remove</button></div>`).join("") : `<div class="note">Add each block of time you can go out shooting, e.g. Saturday 5:30–10 AM and 5–9 PM. Times are local time in ${esc(c.name)}.</div>`;
     $("tripWins").querySelectorAll(".x").forEach((b) => b.onclick = () => { if (tripEdit === b.dataset.id) tripFormReset(); saveTrip(c, { windows: wins.filter((w) => w.id !== b.dataset.id) }); });
     $("tripWins").querySelectorAll("[data-edit]").forEach((b) => b.onclick = () => {
       const w = wins.find((x) => x.id === b.dataset.edit); if (!w) return;
