@@ -2204,7 +2204,7 @@ footer { color: var(--muted); font-size: 12.5px; display: flex; justify-content:
       if (!ll && !p.placeUrl) { noLoc.push(p); continue; }
       let kinds = lightsOf(p).length ? lightsOf(p).slice() : ["anytime"];
       if (kinds.includes("moon")) { kinds = kinds.filter((k) => k !== "moon"); if (!kinds.length) { moonOnly.push(p); continue; } }
-      const name = placeLabel(p) || p.spot || "Spot", key = name.toLowerCase();
+      const name = (placeLabel(p) || p.spot || "Spot").replace(/\s+/g, " ").trim(), key = name.toLowerCase();
       if (!stops.has(key)) stops.set(key, { key, name, items: [], ll: null, href: "" });
       const st = stops.get(key); st.items.push({ p, kinds, hint: tipHint(p.when) }); if (!st.ll && ll) st.ll = ll;
       if (!st.href) st.href = p.placeUrl || "";
@@ -2216,6 +2216,9 @@ footer { color: var(--muted); font-size: 12.5px; display: flex; justify-content:
     for (const p of photos) for (const pl of p.plans || []) { const t = planMoment(pl.at, tz); if (t === null || !/T\d/.test(pl.at || "")) continue; fixed.push({ kind: "plan", t, end: t + TRIP_PLAN * MIN, p, pl, ll: (pl.from && pl.from.ll) || p.cam || p.subj || centre, href: planFromHref(pl, c.name) || gmPlace(placeLabel(p) || p.spot, c.name), day: pl.at.slice(0, 10) }); }
     for (const pin of pins) {
       const ps = (pin.photos || []).map((id) => photos.find((x) => x.id === id)).filter(Boolean); if (!ps.length) continue;
+      { const pk = (placeLabel(ps[0]) || ps[0].spot || "Spot").replace(/\s+/g, " ").trim().toLowerCase(), st0 = stops.get(pk);
+        if (st0) { const ks = new Set(ps.flatMap((x) => lightsOf(x))); const take = st0.items.filter((it) => !ks.size || it.kinds.some((k) => k === "anytime" || ks.has(k)));
+          for (const it of take) ps.push(it.p); st0.items = st0.items.filter((it) => !take.includes(it)); if (!st0.items.length) stops.delete(pk); } }
       const t = planMoment(pin.date + "T" + pin.time, tz); if (t === null) continue;
       const p0 = ps[0], name = placeLabel(p0) || p0.spot || "Spot";
       fixed.push({ kind: "pin", t, end: t + Math.min(45, TRIP_SHOOT + 5 * (ps.length - 1)) * MIN, pin, photos: ps, name, ll: p0.cam || p0.subj || centre, href: p0.placeUrl || gmPlace(name, c.name), day: pin.date, tip: (ps.find((x) => (x.when || "").trim()) || {}).when || "" });
