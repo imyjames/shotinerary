@@ -291,6 +291,7 @@ body.selecting { padding-bottom: 120px; }
 .tstop.open .tn, .tstop.open .more { padding-right: 0; }
 .tedit { position: absolute; top: 0; right: 44px; height: 48px; padding: 0 6px; background: none; border: 0; color: var(--accent); font: inherit; font-size: 16px; cursor: pointer; }
 .tstop:not(.open) .mh { display: none; }
+.tstop .tedit .te2, .tstop.open .tedit .te1 { display: none; } .tstop.open .tedit .te2 { display: inline; font-weight: 600; }
 .tstop:not(.open) .tedit { top: 50%; transform: translateY(-50%); }
 .tstop { padding-left: 58px !important; }
 .tstop > .tick::before { content: ""; position: absolute; inset: -6px; }
@@ -2216,8 +2217,16 @@ footer { color: var(--muted); font-size: 12.5px; display: flex; justify-content:
     for (const p of photos) for (const pl of p.plans || []) { const t = planMoment(pl.at, tz); if (t === null || !/T\d/.test(pl.at || "")) continue; fixed.push({ kind: "plan", t, end: t + TRIP_PLAN * MIN, p, pl, ll: (pl.from && pl.from.ll) || p.cam || p.subj || centre, href: planFromHref(pl, c.name) || gmPlace(placeLabel(p) || p.spot, c.name), day: pl.at.slice(0, 10) }); }
     for (const pin of pins) {
       const ps = (pin.photos || []).map((id) => photos.find((x) => x.id === id)).filter(Boolean); if (!ps.length) continue;
+      // A time you chose belongs to the PLACE, not just the photos that were in the stop when you moved it.
+      // So it takes every other photo there that can be shot around that time: the same light, Anytime,
+      // or a light that comes within about 100 minutes of it. Only photos whose light is hours away stay
+      // for a separate "2nd visit". This is what stops a place showing twice in a row.
       { const pk = (placeLabel(ps[0]) || ps[0].spot || "Spot").replace(/\s+/g, " ").trim().toLowerCase(), st0 = stops.get(pk);
-        if (st0) { const ks = new Set(ps.flatMap((x) => lightsOf(x))); const take = st0.items.filter((it) => !ks.size || it.kinds.some((k) => k === "anytime" || ks.has(k)));
+        const tPin = planMoment(pin.date + "T" + pin.time, tz);
+        if (st0 && tPin !== null) {
+          const ks = new Set(ps.flatMap((x) => lightsOf(x))), s0 = sunFor(pin.date), ds0 = planMoment(pin.date + "T00:00", tz), near = 100 * MIN;
+          const close = (it) => it.kinds.some((k) => k === "anytime" || ks.has(k) || lightRanges(k, s0, ds0, ds0 + 30 * 60 * MIN).some(([ra, rb]) => ra - near <= tPin && tPin <= rb + near));
+          const take = st0.items.filter((it) => !ks.size || close(it));
           for (const it of take) ps.push(it.p); st0.items = st0.items.filter((it) => !take.includes(it)); if (!st0.items.length) stops.delete(pk); } }
       const t = planMoment(pin.date + "T" + pin.time, tz); if (t === null) continue;
       const p0 = ps[0], name = placeLabel(p0) || p0.spot || "Spot";
@@ -2479,7 +2488,7 @@ footer { color: var(--muted); font-size: 12.5px; display: flex; justify-content:
     const visitNo = new Map();
     const tickBtn = (ids) => `<button type="button" class="tick" data-shot="${esc(ids.join(","))}" aria-label="Mark as shot"></button>`;
     const alsoHtml = (it) => { const host = it.type === "stop" ? it.st : it.fx; const a = (host && host.also) || []; if (!a.length) return ""; const needs = [...new Set(a.map((x) => x.need).filter(Boolean))]; return `<div class="also"><div class="tl">Also here, not on the plan yet: ${a.length} photo${a.length > 1 ? "s" : ""}${needs.length ? ` that need${a.length > 1 ? "" : "s"} ${esc(needs.join(" or "))}` : ""}. Add a free time then to come back for ${a.length > 1 ? "them" : "it"}.</div><div class="thumbs alsothumbs">${a.map((x) => `<img alt="" src="${blobUrl(x.p.thumbId)}" data-id="${esc(x.p.id)}">`).join("")}</div></div>`; };
-    const slot = (it, inner) => { { const ah = alsoHtml(it); if (ah) inner = inner.replace(/<div class="acts">/, ah + '<div class="acts">'); } inner = inner.replace(/^([\s\S]*?<div class="tstop[^"]*"[^>]*>)/, (m) => m + `<button type="button" class="tedit" data-tedit>Edit</button>` + tickBtn(it.type === "stop" ? it.st.photos.map((p) => p.id) : it.type === "pin" ? it.fx.photos.map((p) => p.id) : [it.fx.p.id])); inner = inner.replace(/(<div class="tn">[\s\S]*?<\/div>)/, (m) => m + moreHint(it)); const ll = it.type === "stop" ? it.st.ll : it.fx.ll; const ids = it.type === "stop" ? it.st.photos.map((p) => p.id) : it.type === "pin" ? it.fx.photos.map((p) => p.id) : []; return `<div class="tslot${it.type === "plan" ? " still" : ""}" data-end="${it.end}" data-lat="${ll ? ll.lat : ""}" data-lng="${ll ? ll.lng : ""}" data-ids="${esc(ids.join(","))}"${it.type === "pin" ? ` data-pin="${esc(it.fx.pin.id)}"` : ""}${it.type === "plan" ? ` data-plan="${esc(it.fx.p.id + "|" + it.fx.pl.id)}"` : ""}>${inner}</div>`; };
+    const slot = (it, inner) => { { const ah = alsoHtml(it); if (ah) inner = inner.replace(/<div class="acts">/, ah + '<div class="acts">'); } inner = inner.replace(/^([\s\S]*?<div class="tstop[^"]*"[^>]*>)/, (m) => m + `<button type="button" class="tedit" data-tedit><span class="te1">Edit</span><span class="te2">Done</span></button>` + tickBtn(it.type === "stop" ? it.st.photos.map((p) => p.id) : it.type === "pin" ? it.fx.photos.map((p) => p.id) : [it.fx.p.id])); inner = inner.replace(/(<div class="tn">[\s\S]*?<\/div>)/, (m) => m + moreHint(it)); const ll = it.type === "stop" ? it.st.ll : it.fx.ll; const ids = it.type === "stop" ? it.st.photos.map((p) => p.id) : it.type === "pin" ? it.fx.photos.map((p) => p.id) : []; return `<div class="tslot${it.type === "plan" ? " still" : ""}" data-end="${it.end}" data-lat="${ll ? ll.lat : ""}" data-lng="${ll ? ll.lng : ""}" data-ids="${esc(ids.join(","))}"${it.type === "pin" ? ` data-pin="${esc(it.fx.pin.id)}"` : ""}${it.type === "plan" ? ` data-plan="${esc(it.fx.p.id + "|" + it.fx.pl.id)}"` : ""}>${inner}</div>`; };
     const camHtml = (photos) => photos.filter((p) => p.cam_setup).map((p) => { const c = p.cam_setup, sm = camSummary(c), left = (c.df || []).filter((d) => !d.done).map((d) => d.t); return `<div class="tcam">📷 ${esc(sm.join(" · ") || "Camera setup")}${left.length ? `<br><span class="tdf">Don't forget: ${esc(left.join(" · "))}</span>` : ""}</div>`; }).join("");
     const stopHtml = (it) => {
       if (it.type === "plan") { const fx = it.fx, from = fx.pl.from ? (fx.pl.from.name || "your pin") : ""; return `${legHtml(it)}<div class="tstop fixed"><div class="tt">📌 ${T(it.start)} <small>· your plan</small>${GRIP}</div><div class="tn">${esc(fx.p.spot || "Your plan")}</div>${from ? `<div class="tl">From ${esc(from)}${fx.pl.aim ? " · aiming at " + esc(fx.pl.aim) : ""}</div>` : ""}${fx.pl.notes ? `<div class="tip">${esc(fx.pl.notes)}</div>` : ""}${camHtml([fx.p])}<div class="thumbs"><img alt="" src="${blobUrl(fx.p.thumbId)}" data-id="${esc(fx.p.id)}"></div><div class="acts"><a class="btn primary sm" href="${esc(fx.href)}" target="_blank" rel="noopener">Open in Google Maps</a><button class="btn sm" type="button" data-editplan="${esc(fx.p.id + "|" + fx.pl.id)}">Edit plan (time, place)</button></div></div>`; }
@@ -2530,6 +2539,8 @@ footer { color: var(--muted); font-size: 12.5px; display: flex; justify-content:
       e.stopPropagation(); e.preventDefault();
       if (Date.now() - (window.__tripDragEnd || 0) < 600 || $("tripOut").classList.contains("dragmode")) return;
       const card = b.closest(".tstop"), sl = b.closest(".tslot"), ids = (sl.dataset.ids || "").split(",").filter(Boolean);
+      // Open stop: the button reads Done, and tapping it closes the stop again (like iPhone's Edit / Done)
+      if (card.classList.contains("open")) { card.classList.remove("open"); (window.__tripOpen || new Set()).delete(cardKey(card)); const bx = card.querySelector(".retime"); if (bx) { bx.hidden = true; bx.innerHTML = ""; } return; }
       if (sl.dataset.plan) { const ep = card.querySelector("[data-editplan]"); if (ep) ep.click(); return; }
       const ps = ids.map((id) => state.photos.find((p) => p.id === id)).filter(Boolean); if (!ps.length) return;
       const name = (card.querySelector(".tn") || {}).childNodes ? card.querySelector(".tn").childNodes[0].textContent.trim() : "";
