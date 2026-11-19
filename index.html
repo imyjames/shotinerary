@@ -53,17 +53,20 @@ button { font: 500 14px var(--font-body); cursor: pointer; }
 .btn.ghost { background: transparent; border-color: transparent; color: var(--muted); }
 
 /* Drop target */
-.drop { border: 1.5px dashed var(--line); border-radius: 14px; padding: 28px 20px; display: grid; gap: 10px; justify-items: center; text-align: center; background: var(--panel); transition: border-color .15s, background .15s; }
+.drop { border: 1.5px dashed var(--line); border-radius: 14px; padding: 10px 12px; display: flex; flex-wrap: wrap; gap: 4px 12px; justify-content: space-between; align-items: center; text-align: left; background: var(--panel); transition: border-color .15s, background .15s; }
 .drop.over { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, var(--bg)); }
 .drop h2 { font: 600 18px var(--font-display); margin: 0; text-wrap: balance; }
 .drop p { margin: 0; color: var(--muted); max-width: 60ch; }
 .keys { font-family: var(--font-mono); font-size: 12.5px; color: var(--fg); background: var(--panel-2); border: 1px solid var(--line); border-radius: 6px; padding: 1px 6px; }
-.drop .row { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; align-items: center; }
+.drop .row { display: flex; gap: 10px; flex-wrap: wrap; justify-content: flex-start; align-items: center; }
+.drop .drophint { font-size: 13px; }
+
 .drop .tocity { color: var(--muted); font-size: 14px; }
 .drop .tocity b { color: var(--accent); font-weight: 600; }
 
 /* Saving queue + notices */
 .queue { display: flex; flex-direction: column; gap: 8px; }
+.queue:empty { display: none; }
 .qitem { display: grid; grid-template-columns: 56px 1fr auto; gap: 12px; align-items: center; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 8px 10px; }
 .qitem img { width: 56px; height: 42px; object-fit: cover; border-radius: 6px; background: var(--panel-2); }
 .qitem .msg { min-width: 0; font-size: 14px; }
@@ -405,7 +408,7 @@ select.sm { font: 13.5px var(--font-body); background: var(--panel-2); color: va
 .toast { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(16px + env(safe-area-inset-bottom, 0px)); background: var(--panel-2); border: 1px solid var(--line); color: var(--fg); padding: 10px 14px; border-radius: 10px; z-index: 60; font-size: 14px; display: flex; gap: 10px; align-items: center; max-width: calc(100% - 32px); }
 footer { color: var(--muted); font-size: 12.5px; display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; border-top: 1px solid var(--line); padding-top: 12px; }
 .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
-@media (max-width: 520px) { .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; } .card .cap .v { font-size: 13px; } .drop { padding: 20px 12px; } }
+@media (max-width: 520px) { .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; } .card .cap .v { font-size: 13px; } .drop { padding: 10px 12px; } }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
 </style>
 
@@ -429,13 +432,12 @@ footer { color: var(--muted); font-size: 12.5px; display: flex; justify-content:
   </section>
 
   <section class="drop" id="drop" aria-label="Add photos">
-    <h2 id="dropTitle">Paste a screenshot or drop photos here</h2>
-    <p id="dropHelp">Take a screenshot, then press <span class="keys">⌘V</span> anywhere on this page. Or drag screenshots from your Desktop or Finder onto this box. Several at once is fine.</p>
     <div class="row">
-      <span class="tocity" id="toCity"></span>
-      <label class="btn" for="filePick">Choose photos…</label>
+      <label class="btn primary addbtn" for="filePick">＋ Add your photos here</label>
       <input id="filePick" type="file" accept="image/*" multiple class="sr">
+      <span class="tocity" id="toCity"></span>
     </div>
+    <p id="dropHelp" class="drophint">Tap or drop to add</p>
   </section>
 
   <section class="queue" id="queue" aria-live="polite"></section>
@@ -765,7 +767,7 @@ footer { color: var(--muted); font-size: 12.5px; display: flex; justify-content:
     const el = document.createElement("div"); el.className = "qitem";
     let preview = "";
     try { preview = URL.createObjectURL(file); } catch {}
-    el.innerHTML = `<img alt="" ${preview ? `src="${preview}"` : ""}><div class="msg">Waiting… <small>${esc(file.name || "Pasted screenshot")}</small></div><div class="acts"></div>`;
+    el.innerHTML = `<img alt="" ${preview ? `src="${preview}"` : ""}><div class="msg">Waiting… <small>${esc(file.name || "Pasted photo")}</small></div><div class="acts"></div>`;
     $("queue").prepend(el);
     return { el, preview, set(cls, html, acts) {
       el.className = "qitem " + (cls || "");
@@ -793,7 +795,7 @@ footer { color: var(--muted); font-size: 12.5px; display: flex; justify-content:
   }
   async function saveOne(file, cityId, q) {
     const city = state.cities.find((c) => c.id === cityId);
-    q.set("", `Saving to ${esc(city ? city.name : "city")}… <small>${esc(file.name || "Pasted screenshot")}</small>`);
+    q.set("", `Saving to ${esc(city ? city.name : "city")}… <small>${esc(file.name || "Pasted photo")}</small>`);
     let fullId = null, thumbId = null;
     try {
       if (file.type && !file.type.startsWith("image/")) throw new Error("notimage");
@@ -832,7 +834,7 @@ footer { color: var(--muted); font-size: 12.5px; display: flex; justify-content:
     } catch (e) {
       // Clean up any half-finished upload so nothing is left orphaned.
       for (const a of [fullId, thumbId]) if (a) { try { await state.assets.delete(a); } catch {} }
-      q.set("err", esc(errText(e)) + ` <small>${esc(file.name || "Pasted screenshot")}</small>`, [
+      q.set("err", esc(errText(e)) + ` <small>${esc(file.name || "Pasted photo")}</small>`, [
         { label: "Try again", cls: "primary", run: () => { qChain = qChain.then(() => saveOne(file, cityId, q)).catch(() => {}); } },
         { label: "Dismiss", cls: "ghost", run: () => q.done(0) },
       ]);
@@ -1030,7 +1032,7 @@ footer { color: var(--muted); font-size: 12.5px; display: flex; justify-content:
     const nU = cityPhotos(UNSORTED).length;
     let h = "";
     if (window.SHOT_LOCAL && !q && state.photos && state.photos.length) { const l = window.shotLastBackup && window.shotLastBackup(); const d = l ? Math.floor((Date.now() - Date.parse(l)) / 864e5) : null; if (d === null || d >= 7) h += `<div class="bknudge"><span><b>${d === null ? "Not backed up yet" : `Last backed up ${d} days ago`}</b><br>Your photos live only on this phone.</span><button type="button" class="btn primary sm" id="bkNow">Back up now</button></div>`; }
-    if (!q) h += `<button type="button" class="pcity uns" data-id="${UNSORTED}"><span>Unsorted<small>Screenshots you haven't put in a city yet</small></span><span class="n">${nU} ›</span></button>`;
+    if (!q) h += `<button type="button" class="pcity uns" data-id="${UNSORTED}"><span>Unsorted<small>Photos you haven't put in a city yet</small></span><span class="n">${nU} ›</span></button>`;
     h += keys.map((k) => { const cs = by.get(k); const n = cs.reduce((a, c) => a + cityPhotos(c.id).length, 0);
       return `<div class="pgroup"><h5>${esc(k)} <span class="n">${cs.length} ${cs.length === 1 ? "city" : "cities"} · ${n} photo${n === 1 ? "" : "s"}</span></h5>${cs.sort((a, b) => a.name.localeCompare(b.name)).map((c) => `<div class="swrow" data-id="${esc(c.id)}"><div class="swacts"><button type="button" class="sw-edit" aria-label="Edit ${esc(c.name)}">Edit</button><button type="button" class="sw-del" aria-label="Delete ${esc(c.name)}">Delete</button></div><button type="button" class="pcity" data-id="${esc(c.id)}"><span>${esc(c.name)}</span><span class="n">${(() => { const ps = cityPhotos(c.id), k = ps.filter((p) => p.shot).length; return k ? `${k} of ${ps.length} shot` : ps.length; })()} ›</span></button></div>`).join("")}</div>`; }).join("");
     if (!state.cities.length && !q) h += `<p class="note">No cities yet. Type one in the box above, for example Melbourne.</p>`;
@@ -1055,7 +1057,7 @@ footer { color: var(--muted); font-size: 12.5px; display: flex; justify-content:
   $("addCityBtn").onclick = () => { const i = $("pickSearch"); i.placeholder = "Type the new city, e.g. Melbourne"; i.focus(); toast("Type the city's name, then tap it in the list."); };
 
   function renderDrop() {
-    $("toCity").innerHTML = state.cityId === UNSORTED ? `Saving to <b>Unsorted</b> · Claude can work out the city later` : `Saving to <b>${esc(cityName(state.cityId))}</b>`;
+    $("toCity").innerHTML = state.cityId === UNSORTED ? `to <b>Unsorted</b>` : `to <b>${esc(cityName(state.cityId))}</b>`;
   }
 
   // Group photos by the place they show (its name, ignoring small wording differences).
@@ -1151,7 +1153,7 @@ footer { color: var(--muted); font-size: 12.5px; display: flex; justify-content:
     if (!unnamed.length && !named.length) {
       if (state.cityId === UNSORTED) { g.insertAdjacentHTML("beforeend", `<div class="empty"><b>Nothing unsorted.</b><br>Found a photo but don't know where it is? Add it here. Claude can work out the city and place for you.</div>`); return; }
       const c = state.cities.find((x) => x.id === state.cityId);
-      g.insertAdjacentHTML("beforeend", `<div class="empty"><b>No photos in ${esc(c ? c.name : "this city")} yet.</b><br>Screenshot a photo you love on Locationscout, 500px or Instagram, then press <span class="keys">⌘V</span> here.</div>`);
+      g.insertAdjacentHTML("beforeend", `<div class="empty"><b>No photos in ${esc(c ? c.name : "this city")} yet.</b><br>Tap Add your photos here to start this city's shot list.</div>`);
       return;
     }
     // Select sits right above the photos, on the right (like the pill in Photos), and stays in view while scrolling.
@@ -1479,7 +1481,7 @@ footer { color: var(--muted); font-size: 12.5px; display: flex; justify-content:
     return {
       rate_limited: "Claude is busy, or you've reached your Claude usage limit. Try again a bit later.",
       session_expired: "You need to sign in to Claude again, then try.",
-      image_rejected: "Claude couldn't read this image. Try a different screenshot of it.",
+      image_rejected: "Claude couldn't read this image. Try a different copy of it.",
       refused: "Claude couldn't help with this photo. Add a hint and try again.",
       empty_completion: "Claude didn't come back with an answer. Add a hint and try again.",
       invalid_json: "The answer came back garbled. Try again.",
@@ -2558,7 +2560,7 @@ footer { color: var(--muted); font-size: 12.5px; display: flex; justify-content:
     if (!hasFiles(e)) return;
     e.preventDefault(); dragDepth = 0; drop.classList.remove("over");
     const files = Array.from(e.dataTransfer.files || []);
-    if (!files.length) { toast("That website only handed over a link, not the photo itself. Take a screenshot of it and drop or paste that instead."); return; }
+    if (!files.length) { toast("That only handed over a link, not the photo itself. Save the photo first, then add it."); return; }
     const imgs = files.filter((f) => !f.type || f.type.startsWith("image/"));
     if (files.length && !imgs.length) { toast("Only image files can be added."); return; }
     if (imgs.length < files.length) toast(`Skipped ${files.length - imgs.length} file(s) that aren't images.`);
