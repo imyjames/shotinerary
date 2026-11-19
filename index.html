@@ -268,7 +268,10 @@ body.selecting { padding-bottom: 120px; }
 .tday h3 { margin: 6px 0 0; font-size: 18px; }
 .tday h3 small { display: block; color: var(--muted); font-weight: 400; font-size: 13px; }
 .tstop { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; display: flex; flex-direction: column; gap: 6px; }
-.tstop.fixed { border-color: var(--accent); }
+.tstop .tt.clash { color: var(--danger, #ff453a); }
+.tstop .clashl { color: var(--danger, #ff453a); font-size: 13px; }
+.pinreset { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 13px; color: var(--muted); margin: 4px 0 8px; }
+.pinreset button { background: none; border: 0; color: var(--accent); font: inherit; font-size: 15px; padding: 10px 0; cursor: pointer; }
 .tstop .tt { font-weight: 600; font-variant-numeric: tabular-nums; }
 .tstop .tt small { font-weight: 400; color: var(--muted); }
 .tstop .tn { font-size: 16px; }
@@ -290,7 +293,7 @@ body.selecting { padding-bottom: 120px; }
 .tstop .tt, .tstop .tn, .tstop .more { padding-right: 84px; }
 .tstop.open .tn, .tstop.open .more { padding-right: 0; }
 .tedit { position: absolute; top: 0; right: 44px; height: 48px; padding: 0 6px; background: none; border: 0; color: var(--accent); font: inherit; font-size: 16px; cursor: pointer; }
-.tstop:not(.open) .mh { display: none; }
+.tstop:not(.open) .mh, .tstop:not(.open) .clashl { display: none; }
 .tstop .tedit .te2, .tstop.open .tedit .te1 { display: none; } .tstop.open .tedit .te2 { display: inline; font-weight: 600; }
 .tstop:not(.open) .tedit { top: 50%; transform: translateY(-50%); }
 .tstop { padding-left: 58px !important; }
@@ -2470,6 +2473,7 @@ footer { color: var(--muted); font-size: 12.5px; display: flex; justify-content:
     $("tripPack").querySelectorAll("button").forEach((b) => { b.setAttribute("aria-pressed", String(b.dataset.pack === R.mode)); b.onclick = () => { if (b.dataset.pack !== R.mode) saveTrip(c, { mode: b.dataset.pack }); }; });
     let h = "";
     if (!wins.length && !R.extra.length) { $("tripOut").innerHTML = ""; return; }
+    { const np = ((c.trip || {}).pins || []).length; if (np) h += `<div class="pinreset"><span>${np === 1 ? "1 stop has a time you chose." : `${np} stops have times you chose.`}</span><button type="button" id="pinReset">Let the app choose all</button></div>`; }
     const days = new Map();
     for (const d of R.plan) { if (!days.has(d.w.date)) days.set(d.w.date, []); days.get(d.w.date).push(d); }
     for (const e of R.extra) { if (!days.has(e.day)) days.set(e.day, []); days.get(e.day).push({ extra: e }); }
@@ -2484,11 +2488,11 @@ footer { color: var(--muted); font-size: 12.5px; display: flex; justify-content:
       return `<div class="ttravel"><button type="button" class="legbtn" data-leg="${esc(it.tr.key)}" data-from="${esc(from || "")}" data-to="${esc(to)}" data-a="${it.tr.a ? it.tr.a.lat + "," + it.tr.a.lng : ""}" data-b="${it.tr.b ? it.tr.b.lat + "," + it.tr.b.lng : ""}" aria-label="Change how you get there">${icon} ${from ? "" : "Getting there: "}${esc(it.tr.how)}${from ? "" : " from the middle of town"}${it.tr.chosen ? "" : ""} <span class="chev">›</span></button> · <a href="${esc(gmDir(from, to, c.name, it.tr.gm))}" target="_blank" rel="noopener">Directions</a></div>`;
     };
     const GRIP = `<span class="grip" role="button" aria-label="Drag to move" title="Drag to move">≡</span>`;
-    const moreHint = (it) => { const ps = it.type === "stop" ? it.st.photos : it.type === "pin" ? it.fx.photos : [it.fx.p]; const bits = []; if (ps.length > 1) bits.push(`${ps.length} photos`); { const host = it.type === "stop" ? it.st : it.fx; const n = ((host && host.also) || []).length; if (n) bits.push(`+${n} for another time`); } if ((it.type === "stop" && it.st.weekNote) || (it.type === "pin" && it.fx.warn)) bits.push("⚠️ check"); if ((it.type === "stop" && (it.st.tip || it.st.hint)) || (it.type === "pin" && it.fx.tip) || (it.type === "plan" && it.fx.pl.notes)) bits.push("tip"); const cs = ps.filter((p) => p.cam_setup); if (cs.length) { const left = cs.reduce((n, p) => n + (p.cam_setup.df || []).filter((d) => !d.done).length, 0); bits.push(left ? `📷 setup · ${left} to remember` : "📷 setup"); } return `<div class="more">${esc(bits.join(" · ") || "Tap for details")}</div>`; };
+    const moreHint = (it) => { const ps = it.type === "stop" ? it.st.photos : it.type === "pin" ? it.fx.photos : [it.fx.p]; const bits = []; if (it.clash) bits.push("⚠️ clashes"); if (ps.length > 1) bits.push(`${ps.length} photos`); { const host = it.type === "stop" ? it.st : it.fx; const n = ((host && host.also) || []).length; if (n) bits.push(`+${n} for another time`); } if ((it.type === "stop" && it.st.weekNote) || (it.type === "pin" && it.fx.warn)) bits.push("⚠️ check"); if ((it.type === "stop" && (it.st.tip || it.st.hint)) || (it.type === "pin" && it.fx.tip) || (it.type === "plan" && it.fx.pl.notes)) bits.push("tip"); const cs = ps.filter((p) => p.cam_setup); if (cs.length) { const left = cs.reduce((n, p) => n + (p.cam_setup.df || []).filter((d) => !d.done).length, 0); bits.push(left ? `📷 setup · ${left} to remember` : "📷 setup"); } return `<div class="more">${esc(bits.join(" · ") || "Tap for details")}</div>`; };
     const visitNo = new Map();
     const tickBtn = (ids) => `<button type="button" class="tick" data-shot="${esc(ids.join(","))}" aria-label="Mark as shot"></button>`;
     const alsoHtml = (it) => { const host = it.type === "stop" ? it.st : it.fx; const a = (host && host.also) || []; if (!a.length) return ""; const needs = [...new Set(a.map((x) => x.need).filter(Boolean))]; return `<div class="also"><div class="tl">Also here, not on the plan yet: ${a.length} photo${a.length > 1 ? "s" : ""}${needs.length ? ` that need${a.length > 1 ? "" : "s"} ${esc(needs.join(" or "))}` : ""}. Add a free time then to come back for ${a.length > 1 ? "them" : "it"}.</div><div class="thumbs alsothumbs">${a.map((x) => `<img alt="" src="${blobUrl(x.p.thumbId)}" data-id="${esc(x.p.id)}">`).join("")}</div></div>`; };
-    const slot = (it, inner) => { { const ah = alsoHtml(it); if (ah) inner = inner.replace(/<div class="acts">/, ah + '<div class="acts">'); } inner = inner.replace(/^([\s\S]*?<div class="tstop[^"]*"[^>]*>)/, (m) => m + `<button type="button" class="tedit" data-tedit><span class="te1">Edit</span><span class="te2">Done</span></button>` + tickBtn(it.type === "stop" ? it.st.photos.map((p) => p.id) : it.type === "pin" ? it.fx.photos.map((p) => p.id) : [it.fx.p.id])); inner = inner.replace(/(<div class="tn">[\s\S]*?<\/div>)/, (m) => m + moreHint(it)); const ll = it.type === "stop" ? it.st.ll : it.fx.ll; const ids = it.type === "stop" ? it.st.photos.map((p) => p.id) : it.type === "pin" ? it.fx.photos.map((p) => p.id) : []; return `<div class="tslot${it.type === "plan" ? " still" : ""}" data-end="${it.end}" data-lat="${ll ? ll.lat : ""}" data-lng="${ll ? ll.lng : ""}" data-ids="${esc(ids.join(","))}"${it.type === "pin" ? ` data-pin="${esc(it.fx.pin.id)}"` : ""}${it.type === "plan" ? ` data-plan="${esc(it.fx.p.id + "|" + it.fx.pl.id)}"` : ""}>${inner}</div>`; };
+    const slot = (it, inner) => { { const ah = alsoHtml(it); if (ah) inner = inner.replace(/<div class="acts">/, ah + '<div class="acts">'); } inner = inner.replace(/^([\s\S]*?<div class="tstop[^"]*"[^>]*>)/, (m) => m + `<button type="button" class="tedit" data-tedit><span class="te1">Edit</span><span class="te2">Done</span></button>` + tickBtn(it.type === "stop" ? it.st.photos.map((p) => p.id) : it.type === "pin" ? it.fx.photos.map((p) => p.id) : [it.fx.p.id])); inner = inner.replace(/(<div class="tn">[\s\S]*?<\/div>)/, (m) => m + moreHint(it) + (it.clash ? `<div class="clashl">⚠️ Clashes with the stop before. With the travel time you'd get here about ${T(it.clashAt)}, ${it.clash} min late. Tap Edit to change a time, or let the app choose.</div>` : "")); if (it.clash) inner = inner.replace('<div class="tt">', '<div class="tt clash">'); const ll = it.type === "stop" ? it.st.ll : it.fx.ll; const ids = it.type === "stop" ? it.st.photos.map((p) => p.id) : it.type === "pin" ? it.fx.photos.map((p) => p.id) : []; return `<div class="tslot${it.type === "plan" ? " still" : ""}" data-end="${it.end}" data-lat="${ll ? ll.lat : ""}" data-lng="${ll ? ll.lng : ""}" data-ids="${esc(ids.join(","))}"${it.type === "pin" ? ` data-pin="${esc(it.fx.pin.id)}"` : ""}${it.type === "plan" ? ` data-plan="${esc(it.fx.p.id + "|" + it.fx.pl.id)}"` : ""}>${inner}</div>`; };
     const camHtml = (photos) => photos.filter((p) => p.cam_setup).map((p) => { const c = p.cam_setup, sm = camSummary(c), left = (c.df || []).filter((d) => !d.done).map((d) => d.t); return `<div class="tcam">📷 ${esc(sm.join(" · ") || "Camera setup")}${left.length ? `<br><span class="tdf">Don't forget: ${esc(left.join(" · "))}</span>` : ""}</div>`; }).join("");
     const stopHtml = (it) => {
       if (it.type === "plan") { const fx = it.fx, from = fx.pl.from ? (fx.pl.from.name || "your pin") : ""; return `${legHtml(it)}<div class="tstop fixed"><div class="tt">📌 ${T(it.start)} <small>· your plan</small>${GRIP}</div><div class="tn">${esc(fx.p.spot || "Your plan")}</div>${from ? `<div class="tl">From ${esc(from)}${fx.pl.aim ? " · aiming at " + esc(fx.pl.aim) : ""}</div>` : ""}${fx.pl.notes ? `<div class="tip">${esc(fx.pl.notes)}</div>` : ""}${camHtml([fx.p])}<div class="thumbs"><img alt="" src="${blobUrl(fx.p.thumbId)}" data-id="${esc(fx.p.id)}"></div><div class="acts"><a class="btn primary sm" href="${esc(fx.href)}" target="_blank" rel="noopener">Open in Google Maps</a><button class="btn sm" type="button" data-editplan="${esc(fx.p.id + "|" + fx.pl.id)}">Edit plan (time, place)</button></div></div>`; }
@@ -2502,6 +2506,7 @@ footer { color: var(--muted); font-size: 12.5px; display: flex; justify-content:
       for (const part of parts) {
         if (part.extra) { const it = { type: part.extra.kind, fx: part.extra, start: part.extra.t, end: part.extra.end, tr: null }; h += slot(it, stopHtml(it).replace("· your plan", "· your plan (outside your free times)").replace("· your time", "· your time (outside your free times)")); continue; }
         h += `<div class="tl tfree" data-a="${part.w.a}" style="color:var(--muted);font-size:13px">Free ${T(part.w.a)} – ${T(part.w.b)}</div>`; prevName = null;
+        { let pe = null; for (const it of part.items) { const need = pe === null ? null : pe + ((it.tr && it.tr.min) || 0) * MIN; it.clash = need !== null && it.start < need - 60e3 ? Math.round((need - it.start) / MIN) : 0; it.clashAt = need; pe = Math.max(pe || 0, it.end); } }
         h += part.items.length ? part.items.map((it) => slot(it, stopHtml(it))).join("") : `<div class="note">Nothing fits this time. Check the "Didn't fit" list below.</div>`;
       }
       h += `</div>`;
@@ -2533,6 +2538,7 @@ footer { color: var(--muted); font-size: 12.5px; display: flex; justify-content:
       };
     });
     let cardKey;
+    if ($("pinReset")) $("pinReset").onclick = () => { const old = (c.trip || {}).pins || []; saveTrip(c, { pins: [] }); toast("The app is choosing all the times again.", { label: "Undo", run: () => saveTrip(c, { pins: old }) }); };
     tripDrag(c, R);
     // Edit a stop right here: day or time, best light, the photos, or skip it
     $("tripOut").querySelectorAll("[data-tedit]").forEach((b) => b.onclick = (e) => {
