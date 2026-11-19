@@ -367,6 +367,9 @@ body.selecting { padding-bottom: 120px; }
 .group h3 .edit { margin-left: auto; font: 500 13px var(--font-body); }
 .group h3 .prio { margin-left: auto; font: 600 12px var(--font-body); border-radius: 999px; padding: 4px 10px; border: 0; cursor: pointer; background: var(--panel-2); color: var(--muted); }
 .group h3 .prio + .edit { margin-left: 0; }
+.group h3 .pstar { margin-left: auto; background: none; border: 0; color: var(--muted); font-size: 22px; line-height: 1; padding: 4px 8px; cursor: pointer; flex-shrink: 0; }
+.group h3 .pstar.on { color: #ffd60a; }
+.group h3 .pstar + .edit { margin-left: 0; }
 .group h3 .n, .group h3 .prio, .group h3 .edit { white-space: nowrap; flex-shrink: 0; }
 .group h3 .prio.prio-must { background: var(--accent); color: var(--accent-ink); }
 .group h3 .prio.prio-maybe { background: transparent; border: 1px dashed var(--line); }
@@ -460,7 +463,7 @@ footer { color: var(--muted); font-size: 12.5px; display: flex; justify-content:
     <button class="btn close" id="lbClose">Done</button>
     <div class="topacts">
       <button class="iconbtn" id="lbShot" type="button" aria-label="Mark as shot">○</button>
-      <button class="iconbtn" id="lbStar" type="button" aria-label="Must-have">☆</button>
+      <button class="iconbtn" id="lbStar" type="button" aria-label="Must-have" hidden>☆</button>
       <button class="iconbtn" id="lbMore" type="button" aria-label="More options">⋯</button>
       <button class="iconbtn deltop" id="lbDelTop" type="button" aria-label="Delete this photo">🗑</button>
     </div>
@@ -992,7 +995,6 @@ footer { color: var(--muted); font-size: 12.5px; display: flex; justify-content:
   }
   function photoMenu(p) {
     actionSheet(p.spot || "Photo", [
-      { label: p.star ? "Remove Must-have" : "★ Mark as Must-have", run: () => updatePhoto(p.id, { star: !p.star }) },
       { label: "Move to…", run: () => moveMenu([p.id]) },
       { label: "Select", run: () => { state.sel = new Set([p.id]); renderGallery(); renderSelBar(); } },
       { label: "Delete Photo", danger: true, run: () => confirmDelete([p.id]) },
@@ -1093,11 +1095,10 @@ footer { color: var(--muted); font-size: 12.5px; display: flex; justify-content:
     const cap = p.spot ? (viewpoint || landmark) : "No spot name yet";
     el.innerHTML = `<img class="ph" loading="lazy" alt="${esc(p.spot || "Reference photo")}" src="${blobUrl(p.thumbId)}">
  <div class="tags">${LIGHTS.filter(([k]) => lightsOf(p).includes(k)).map(([, l]) => `<span class="tag">${esc(l)}</span>`).join("")}${hasLoc(p) ? "" : `<span class="tag noloc">No location</span>`}</div>
-      <button class="star ${p.star ? "on" : ""}" aria-label="${p.star ? "Remove must-have star" : "Mark as must-have"}" aria-pressed="${!!p.star}">${p.star ? "★" : "☆"}</button>
       <div class="cap"><span class="v ${p.spot ? "" : "none"}">${esc(cap)}</span></div>${p.shot ? `<span class="shotmark" aria-label="Shot">✓</span>` : ""}`;
     const img = el.querySelector("img");
     img.onerror = () => { img.removeAttribute("src"); img.alt = "Photo unavailable"; };
-    el.querySelector(".star").onclick = (e) => { e.stopPropagation(); updatePhoto(p.id, { star: !p.star }); };
+
     el.insertAdjacentHTML("beforeend", `<span class="selc" aria-hidden="true">✓</span>`);
     if (state.sel) { el.classList.add("selmode"); el.classList.toggle("picked", state.sel.has(p.id)); el.setAttribute("aria-pressed", String(state.sel.has(p.id))); el.setAttribute("aria-label", (p.spot || "Photo") + (state.sel.has(p.id) ? ", selected" : "")); }
     const tap = () => { if (state.sel) { if (state.sel.has(p.id)) state.sel.delete(p.id); else state.sel.add(p.id); el.classList.toggle("picked", state.sel.has(p.id)); el.setAttribute("aria-pressed", String(state.sel.has(p.id))); renderSelBar(); } else openLightboxById(p.id); };
@@ -1241,14 +1242,21 @@ footer { color: var(--muted); font-size: 12.5px; display: flex; justify-content:
   }
   // Place priority: Must / If time (normal) / Maybe. Saved on each photo of the place, so the trip planner sees it.
   const PRIO = { must: "Must", if: "If time", maybe: "Maybe" };
-  const prioOf = (p) => (p.prio === "must" || p.prio === "maybe" ? p.prio : "if");
+  let starCache = { src: null, ids: new Set() };
+  const starredIds = () => { if (starCache.src === state.photos) return starCache.ids; const ids = new Set(); for (const cid of new Set(state.photos.map((p) => p.cityId))) for (const g of placeGroups(state.photos.filter((p) => p.cityId === cid))) if (g.items.some((p) => p.star)) g.items.forEach((p) => ids.add(p.id)); for (const p of state.photos) if (p.star) ids.add(p.id); starCache = { src: state.photos, ids }; return ids; };
+  const isStar = (p) => starredIds().has(p.id);
+  const prioOf = (p) => (isStar(p) ? "must" : "if");
   const groupPrio = (items) => items.some((p) => prioOf(p) === "must") ? "must" : items.length && items.every((p) => prioOf(p) === "maybe") ? "maybe" : "if";
   function addPlaceTools(sec, g) {
     const h = sec.querySelector("h3"); const key = g.title;
     const gp = groupPrio(g.items);
     const pb = document.createElement("button"); pb.type = "button"; pb.className = `prio prio-${gp}`; pb.textContent = PRIO[gp]; pb.setAttribute("aria-label", `Priority for ${g.title}: ${PRIO[gp]}. Change`);
     pb.onclick = () => actionSheet(`How much do you want ${g.title}?`, [["must", "Must: plan these first"], ["if", "If time: the normal choice"], ["maybe", "Maybe: only if there's room"]].map(([v, l]) => ({ label: (v === gp ? "✓ " : "") + l, run: async () => { if (v === gp) return; for (const p of g.items) if (prioOf(p) !== v) await updatePhoto(p.id, { prio: v === "if" ? null : v }); toast(`${g.title}: ${PRIO[v]}.`); } })));
-    h.appendChild(pb);
+    void pb;
+    const on = g.items.some(isStar);
+    const sb = document.createElement("button"); sb.type = "button"; sb.className = "pstar" + (on ? " on" : ""); sb.textContent = on ? "★" : "☆"; sb.setAttribute("aria-pressed", String(on)); sb.setAttribute("aria-label", on ? `${g.title} is a Must-have. Tap to remove` : `Make ${g.title} a Must-have`);
+    sb.onclick = async () => { for (const p of g.items) if (!!p.star !== !on) await updatePhoto(p.id, { star: !on }); toast(on ? `${g.title}: no longer a Must-have.` : `★ ${g.title} is a Must-have. Plan my trip fits it in first.`); };
+    h.appendChild(sb);
     const btn = document.createElement("button"); btn.className = "btn ghost sm edit"; btn.type = "button"; btn.textContent = "Edit"; btn.setAttribute("aria-label", `Edit ${g.title}`);
     btn.onclick = () => { editing.place = editing.place === key ? null : key; renderGallery(); };
     h.appendChild(btn);
@@ -1313,9 +1321,9 @@ footer { color: var(--muted); font-size: 12.5px; display: flex; justify-content:
     if (img.dataset.id !== p.id) { img.src = blobUrl(p.fullId); img.dataset.id = p.id; img.alt = p.spot || "Reference photo"; }
     if (full || document.activeElement !== $("lbSpot")) $("lbSpot").value = p.spot || "";
     $("lbShot").textContent = p.shot ? "✓" : "○"; $("lbShot").classList.toggle("on", !!p.shot); $("lbShot").setAttribute("aria-pressed", String(!!p.shot)); $("lbShot").setAttribute("aria-label", p.shot ? "Shot. Tap if you need to reshoot" : "Mark as shot");
-    $("lbStar").textContent = p.star ? "★" : "☆";
+    $("lbStar").hidden = true;
     $("lbStar").setAttribute("aria-pressed", String(!!p.star)); $("lbStar").setAttribute("aria-label", p.star ? "Remove Must-have" : "Mark as Must-have");
-    $("lbSub").textContent = [p.star ? "★ Must-have" : "", cityName(p.cityId) || "Unsorted"].filter(Boolean).join(" · ");
+    $("lbSub").textContent = [isStar(p) ? "★ Must-have" : "", cityName(p.cityId) || "Unsorted"].filter(Boolean).join(" · ");
     const groups = placeGroups(cityPhotos(p.cityId));
     const mine = groups.find((g) => g.items.some((x) => x.id === p.id));
     const others = groups.filter((g) => g !== mine).sort((a, b) => a.title.localeCompare(b.title));
@@ -2271,8 +2279,8 @@ footer { color: var(--muted); font-size: 12.5px; display: flex; justify-content:
           const st = stops.get(key); const f = fits(st, t, at, limit); if (!f) continue;
           const half = (f.start - dayStart) / MIN < 720 ? "am" : "pm";
           if (cap && w.date !== lastDay && (perDay[w.date + half] || 0) >= cap[half]) continue;
-          const star = f.got.some((it) => it.p.star);
-          const pr = f.got.some((it) => prioOf(it.p) === "must") ? -60 : f.got.every((it) => prioOf(it.p) === "maybe") ? 45 : 0;
+          const star = f.got.some((it) => isStar(it.p));
+          const pr = 0; // the place ★ already counts once in the score below (star: -45)
           const wk = f.got.some((it) => it.hint && it.hint.week && (it.hint.week === "weekday") === weekend);
           const score = (f.start - t) / MIN + (star ? -45 : 0) + Math.min(120, (f.rangeEnd - f.start) / MIN) / 4 + (f.kind === "anytime" ? 20 : 0) - f.got.length * 5 + (f.pre ? 90 : 0) - (f.tip ? 15 : 0) + (wk ? 15 : 0) + pr;
           if (!pick || score < pick.score) pick = { st, f, score };
@@ -2282,7 +2290,7 @@ footer { color: var(--muted); font-size: 12.5px; display: flex; justify-content:
           st.items = st.items.filter((x) => !got.includes(x)); if (!st.items.length) left.delete(st.key);
           const hints = got.map((x) => x.hint).filter((h) => h && h.label);
           const weekNote = got.some((x) => x.hint && x.hint.week === "weekday") && weekend ? "The tip says weekdays are quieter; this is a weekend." : got.some((x) => x.hint && x.hint.week === "weekend") && !weekend ? "The tip says weekends are better; this is a weekday." : "";
-          items.push({ type: "stop", st: { key: st.key, name: st.name, ll: st.ll, href: st.href, rough: st.rough, photos: got.map((x) => x.p), star: got.some((x) => x.p.star), must: got.some((x) => prioOf(x.p) === "must"), tip: (got.find((x) => (x.p.when || "").trim()) || { p: {} }).p.when || "", hint: hints.length ? hints[0].label : "", weekNote }, ...pick.f, date: w.date });
+          items.push({ type: "stop", st: { key: st.key, name: st.name, ll: st.ll, href: st.href, rough: st.rough, photos: got.map((x) => x.p), star: got.some((x) => isStar(x.p)), must: got.some((x) => prioOf(x.p) === "must"), tip: (got.find((x) => (x.p.when || "").trim()) || { p: {} }).p.when || "", hint: hints.length ? hints[0].label : "", weekNote }, ...pick.f, date: w.date });
           { const half = (pick.f.start - dayStart) / MIN < 720 ? "am" : "pm"; perDay[w.date + half] = (perDay[w.date + half] || 0) + 1; }
           t = pick.f.end; at = st.ll; atName = st.name; continue;
         }
@@ -2295,9 +2303,9 @@ footer { color: var(--muted); font-size: 12.5px; display: flex; justify-content:
     }
     const extra = fixed.filter((f) => !f.used && (f.kind === "pin" || f.t > Date.now() - 6 * 3600e3));
     const covers = (it) => wins.some((w) => { const s = sunFor(w.date); const ds = planMoment(w.date + "T00:00", tz); return itemRanges(it, s, ds, ds + 30 * 60 * MIN).some((r) => Math.min(r.b, w.b) - Math.max(r.a, w.a) >= TRIP_SHOOT * MIN); });
-    const missed = [...left].flatMap((k) => { const st = stops.get(k); return st.items.map((x) => { const ok = covers(x); const need = x.hint && x.hint.label ? x.hint.label + " (from the tip)" : x.kinds.map((y) => LIGHT_WORD[y] || y).join(" or "); return { st: { name: st.name, photos: [x.p], star: !!x.p.star }, why: ok ? "Ran out of time. Add another free time, or skip something." : `Needs ${need}: none of your free times cover it.` }; }); })
-      .concat(moonOnly.map((p) => ({ st: { name: placeLabel(p) || p.spot || "Spot", photos: [p], star: !!p.star }, why: "Moon shot: plan the time in PhotoPills, then add it as My plan on the photo and it shows up here." })))
-      .concat(dropped.map((p) => ({ dropped: true, st: { name: placeLabel(p) || p.spot || "Spot", photos: [p], star: !!p.star }, why: `${PRIO[prioOf(p)]}: left out to make room for your Musts.` })))
+    const missed = [...left].flatMap((k) => { const st = stops.get(k); return st.items.map((x) => { const ok = covers(x); const need = x.hint && x.hint.label ? x.hint.label + " (from the tip)" : x.kinds.map((y) => LIGHT_WORD[y] || y).join(" or "); return { st: { name: st.name, photos: [x.p], star: isStar(x.p) }, why: ok ? "Ran out of time. Add another free time, or skip something." : `Needs ${need}: none of your free times cover it.` }; }); })
+      .concat(moonOnly.map((p) => ({ st: { name: placeLabel(p) || p.spot || "Spot", photos: [p], star: isStar(p) }, why: "Moon shot: plan the time in PhotoPills, then add it as My plan on the photo and it shows up here." })))
+      .concat(dropped.map((p) => ({ dropped: true, st: { name: placeLabel(p) || p.spot || "Spot", photos: [p], star: isStar(p) }, why: "Left out to make room for your ★ Must-haves." })))
       .reduce((acc, m) => { const k = m.st.name + "|" + m.why; const ex = acc.find((x) => x.k === k); if (ex) { ex.st.photos.push(...m.st.photos); ex.st.star = ex.st.star || m.st.star; } else acc.push({ ...m, k, st: { ...m.st, photos: [...m.st.photos] } }); return acc; }, [])
       .sort((a, b) => { const rk = (m) => (m.st.star ? 0 : 1) + ({ must: 0, if: 2, maybe: 4 })[groupPrio(m.st.photos)]; return rk(a) - rk(b); });
     return { tz, plan, extra, missed, noLoc, skipped, shotPs, wins, planned, mode: trip.mode === "spread" ? "spread" : "pack", go };
@@ -2443,7 +2451,7 @@ footer { color: var(--muted); font-size: 12.5px; display: flex; justify-content:
       if (it.type === "plan") { const fx = it.fx, from = fx.pl.from ? (fx.pl.from.name || "your pin") : ""; return `${legHtml(it)}<div class="tstop fixed"><div class="tt">📌 ${T(it.start)} <small>· your plan</small>${GRIP}</div><div class="tn">${esc(fx.p.spot || "Your plan")}</div>${from ? `<div class="tl">From ${esc(from)}${fx.pl.aim ? " · aiming at " + esc(fx.pl.aim) : ""}</div>` : ""}${fx.pl.notes ? `<div class="tip">${esc(fx.pl.notes)}</div>` : ""}${camHtml([fx.p])}<div class="thumbs"><img alt="" src="${blobUrl(fx.p.thumbId)}" data-id="${esc(fx.p.id)}"></div><div class="acts"><a class="btn primary sm" href="${esc(fx.href)}" target="_blank" rel="noopener">Open in Google Maps</a><button class="btn sm" type="button" data-editplan="${esc(fx.p.id + "|" + fx.pl.id)}">Edit plan (time, place)</button></div></div>`; }
       if (it.type === "pin") { const fx = it.fx, n = fx.photos.length; return `${legHtml(it)}<div class="tstop fixed" data-pin="${esc(fx.pin.id)}"><div class="tt">${T(it.start)} – ${T(it.end)} <small>· your time</small>${GRIP}</div>${fx.warn ? `<div class="tl warn" style="color:var(--warn)">Outside ${esc(fx.warn.what)}: ${T(fx.warn.a)} – ${T(fx.warn.b)}.</div>` : ""}<div class="tn">${esc(fx.name)}${n > 1 ? ` <small style="color:var(--muted)">(${n} photos)</small>` : ""}</div>${fx.tip ? `<div class="tip">${esc(fx.tip)}</div>` : ""}${camHtml(fx.photos)}<div class="thumbs">${fx.photos.map((p) => `<img alt="" src="${blobUrl(p.thumbId)}" data-id="${esc(p.id)}">`).join("")}</div><div class="acts"><a class="btn primary sm" href="${esc(fx.href)}" target="_blank" rel="noopener">Open in Google Maps</a><button class="btn sm" type="button" data-retime="pin">Change day or time</button><button class="btn ghost sm" type="button" data-unpin="${esc(fx.pin.id)}">Let the app choose</button></div><div class="retime" hidden></div></div>`; }
       const st = it.st, n = st.photos.length;
-      return `${legHtml(it)}<div class="tstop" data-key="${esc(st.key)}"><div class="tt">${T(it.start)} – ${T(it.end)} <small>· ${esc((LIGHTS.find(([k]) => k === it.kind) || [, "Any time"])[1])}${st.star ? " · ★ Must-have" : ""}${st.must ? " · Must" : ""}</small>${GRIP}</div><div class="tn">${esc(st.name)}${n > 1 ? ` <small style="color:var(--muted)">(${n} photos)</small>` : ""}</div>${st.hint ? `<div class="tl">Timed to the tip: ${esc(st.hint)}</div>` : ""}${st.weekNote ? `<div class="tl warn" style="color:var(--warn)">${esc(st.weekNote)}</div>` : ""}${st.tip ? `<div class="tip">${esc(st.tip)}</div>` : ""}${st.rough ? `<div class="tl">No exact pin for this one, so travel time is a guess.</div>` : ""}${camHtml(st.photos)}<div class="thumbs">${st.photos.map((p) => `<img alt="" src="${blobUrl(p.thumbId)}" data-id="${esc(p.id)}">`).join("")}</div><div class="acts"><a class="btn primary sm" href="${esc(st.href)}" target="_blank" rel="noopener">Open in Google Maps</a><button class="btn sm" type="button" data-retime="stop" data-ids="${esc(st.photos.map((p) => p.id).join(","))}" data-date="${esc(it.date)}" data-at="${it.start}">Change day or time</button><button class="btn ghost sm" type="button" data-skip="${esc(st.key)}" data-ids="${esc(st.photos.map((p) => p.id).join(","))}">Skip</button></div><div class="retime" hidden></div></div>`;
+      return `${legHtml(it)}<div class="tstop" data-key="${esc(st.key)}"><div class="tt">${T(it.start)} – ${T(it.end)} <small>· ${esc((LIGHTS.find(([k]) => k === it.kind) || [, "Any time"])[1])}${st.star ? " · ★ Must-have" : ""}</small>${GRIP}</div><div class="tn">${esc(st.name)}${n > 1 ? ` <small style="color:var(--muted)">(${n} photos)</small>` : ""}</div>${st.hint ? `<div class="tl">Timed to the tip: ${esc(st.hint)}</div>` : ""}${st.weekNote ? `<div class="tl warn" style="color:var(--warn)">${esc(st.weekNote)}</div>` : ""}${st.tip ? `<div class="tip">${esc(st.tip)}</div>` : ""}${st.rough ? `<div class="tl">No exact pin for this one, so travel time is a guess.</div>` : ""}${camHtml(st.photos)}<div class="thumbs">${st.photos.map((p) => `<img alt="" src="${blobUrl(p.thumbId)}" data-id="${esc(p.id)}">`).join("")}</div><div class="acts"><a class="btn primary sm" href="${esc(st.href)}" target="_blank" rel="noopener">Open in Google Maps</a><button class="btn sm" type="button" data-retime="stop" data-ids="${esc(st.photos.map((p) => p.id).join(","))}" data-date="${esc(it.date)}" data-at="${it.start}">Change day or time</button><button class="btn ghost sm" type="button" data-skip="${esc(st.key)}" data-ids="${esc(st.photos.map((p) => p.id).join(","))}">Skip</button></div><div class="retime" hidden></div></div>`;
     };
     for (const [date, parts] of [...days.entries()].sort((a, b) => a[0].localeCompare(b[0]))) {
       const s0 = parts.find((x) => x.s); const sunLine = s0 && cityCentre(c.id) && s0.s.rise[0] ? `Sunrise ${T(s0.s.rise[0])} · sunset ${T(s0.s.rise[1])}` : "";
@@ -2600,6 +2608,7 @@ footer { color: var(--muted); font-size: 12.5px; display: flex; justify-content:
     }, (e) => showBanner("Lost connection to your cities (" + e.code + "). Reload the page."));
     db.collection("photos").onSnapshot((snap) => {
       state.photos = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+      for (const p of state.photos) if (p.prio) { const patch = { prio: null }; if (p.prio === "must" && !p.star) patch.star = true; p.prio = null; if (patch.star) p.star = true; updatePhoto(p.id, patch); }
       state.photosLoaded = true;
       if (!snap.metadata.fromCache) { clearTimeout(slow); if ($("banner").textContent.startsWith("Still trying")) showBanner(""); }
       render();
