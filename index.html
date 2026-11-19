@@ -2507,11 +2507,11 @@ footer { color: var(--muted); font-size: 12.5px; display: flex; justify-content:
     $("footNote").textContent = "Your photos and plans are stored on this device only. Back up now and then.";
     const lt = $("localTools"); lt.hidden = false;
     const showLast = () => { const l = window.shotLastBackup && window.shotLastBackup(); const d = l ? Math.floor((Date.now() - Date.parse(l)) / 864e5) : null; $("lastBk").textContent = l ? `Last backup: ${d === 0 ? "today" : d === 1 ? "yesterday" : d + " days ago"}` : "Not backed up yet"; $("lastBk").style.color = d === null || d > 14 ? "var(--warn)" : ""; };
-    lt.innerHTML = `<div class="bkrow"><button class="btn" type="button" id="bkBtn">Back up</button><button class="btn ghost" type="button" id="rsBtn">Restore from a backup…</button><input type="file" id="rsFile" hidden></div><span id="lastBk"></span>`;
+    lt.innerHTML = `<div class="bkrow"><button class="btn" type="button" id="bkBtn">Back up</button><button class="btn ghost" type="button" id="rsBtn">Restore from a backup…</button><input type="file" id="rsFile" multiple hidden></div><span id="lastBk"></span>`;
     showLast();
     $("bkBtn").onclick = async () => { $("bkBtn").disabled = true; try { const r = await window.shotBackup(); if (!r.cancelled) toast(`Backed up ${r.photos} photos. Keep the file in iCloud Drive or on your Mac.`); } catch (e) { toast("Couldn't make the backup. " + ((e && e.message) || "")); } $("bkBtn").disabled = false; showLast(); };
     $("rsBtn").onclick = () => $("rsFile").click();
-    $("rsFile").onchange = async (e) => { const f = e.target.files[0]; e.target.value = ""; if (!f) return; toast("Restoring…"); try { const r = await window.shotRestore(f); toast(`Restored ${r.photos} photos in ${r.cities} cities.`); } catch (err) { toast((err && err.message) || "Couldn't read that file."); } };
+    $("rsFile").onchange = async (e) => { const fs = [...e.target.files]; e.target.value = ""; if (!fs.length) return; toast("Restoring…"); let n = 0, bad = 0; for (const f of fs) { try { n += (await window.shotRestore(f)).photos; } catch (err) { bad++; } } toast(bad && !n ? "Couldn't read that file. Pick a Shotinerary backup." : `Restored ${n} photos${bad ? ` (${bad} file${bad > 1 ? "s" : ""} couldn't be read)` : ""}.`); };
     window.shotOfferUpdate = (go) => { const b = $("banner"); b.innerHTML = `A new version of Shotinerary is ready. <button class="btn primary sm" type="button" id="updGo">Update now</button>`; b.hidden = false; $("updGo").onclick = () => { b.textContent = "Updating…"; go(); }; };
   }
   // ---------- start ----------
