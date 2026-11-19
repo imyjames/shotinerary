@@ -287,6 +287,11 @@ body.selecting { padding-bottom: 120px; }
 .tstop .grip { position: absolute; top: 0; right: 0; width: 48px; height: 48px; display: grid; place-items: center; color: var(--fg); opacity: .55; font-size: 24px; line-height: 1; cursor: grab; touch-action: none; user-select: none; -webkit-user-select: none; }
 .tstop:not(.open) .grip { top: 50%; transform: translateY(-50%); }
 .tstop .tn, .tstop .more { padding-right: 34px; }
+.tstop .tt, .tstop .tn, .tstop .more { padding-right: 84px; }
+.tstop.open .tn, .tstop.open .more { padding-right: 0; }
+.tedit { position: absolute; top: 0; right: 44px; height: 48px; padding: 0 6px; background: none; border: 0; color: var(--accent); font: inherit; font-size: 16px; cursor: pointer; }
+.tstop:not(.open) .mh { display: none; }
+.tstop:not(.open) .tedit { top: 50%; transform: translateY(-50%); }
 .tstop { padding-left: 58px !important; }
 .tstop > .tick::before { content: ""; position: absolute; inset: -6px; }
 .tick { position: absolute; left: 14px; top: 50%; transform: translateY(-50%); width: 26px; height: 26px; border-radius: 50%; border: 2px solid var(--muted); background: none; padding: 0; cursor: pointer; display: grid; place-items: center; }
@@ -562,10 +567,10 @@ footer { color: var(--muted); font-size: 12.5px; display: flex; justify-content:
 </div>
 <datalist id="spotList"></datalist>
 <div class="selbar" id="selBar" hidden></div>
-<div class="trip" id="trip" hidden role="dialog" aria-modal="true" aria-label="Trip plan">
+<div class="trip" id="trip" hidden role="dialog" aria-modal="true" aria-label="Shot plan">
   <div class="tripin">
     <div class="navrow"><button class="navlink" id="tripBack" type="button">‹ Back</button></div>
-    <div class="ctitle trtitle"><b id="tripTitle">Trip plan</b></div>
+    <div class="ctitle trtitle"><b id="tripTitle">Shot plan</b></div>
     <div class="sec">
       <h4>When you're free to shoot</h4>
       <div id="tripWins"></div>
@@ -1156,7 +1161,7 @@ footer { color: var(--muted); font-size: 12.5px; display: flex; justify-content:
     if (state.cityId !== UNSORTED && all.length) {
       const c = state.cities.find((x) => x.id === state.cityId) || {}; const nw = ((c.trip || {}).windows || []).length;
       const tb = document.createElement("button"); tb.type = "button"; tb.className = "btn tripbtn"; tb.id = "tripOpen";
-      tb.innerHTML = `<span>🗓 Plan my trip</span><small>${nw ? `${nw} free time${nw === 1 ? "" : "s"} ›` : "Add when you're free ›"}</small>`;
+      tb.innerHTML = `<span>🗓 Plan my shots</span><small>${nw ? `${nw} free time${nw === 1 ? "" : "s"} ›` : "Add when you're free ›"}</small>`;
       tb.onclick = () => openTrip(state.cityId); g.appendChild(tb);
     }
     if (state.cityId !== UNSORTED) g.appendChild(cityTools());
@@ -1265,7 +1270,7 @@ footer { color: var(--muted); font-size: 12.5px; display: flex; justify-content:
     void pb;
     const on = g.items.some(isStar);
     const sb = document.createElement("button"); sb.type = "button"; sb.className = "pstar" + (on ? " on" : ""); sb.textContent = on ? "★" : "☆"; sb.setAttribute("aria-pressed", String(on)); sb.setAttribute("aria-label", on ? `${g.title} is a Must-have. Tap to remove` : `Make ${g.title} a Must-have`);
-    sb.onclick = async () => { for (const p of g.items) if (!!p.star !== !on) await updatePhoto(p.id, { star: !on }); toast(on ? `${g.title}: no longer a Must-have.` : `★ ${g.title} is a Must-have. Plan my trip fits it in first.`); };
+    sb.onclick = async () => { for (const p of g.items) if (!!p.star !== !on) await updatePhoto(p.id, { star: !on }); toast(on ? `${g.title}: no longer a Must-have.` : `★ ${g.title} is a Must-have. Plan my shots fits it in first.`); };
     h.appendChild(sb);
     const btn = document.createElement("button"); btn.className = "btn ghost sm edit"; btn.type = "button"; btn.textContent = "Edit"; btn.setAttribute("aria-label", `Edit ${g.title}`);
     btn.onclick = () => { editing.place = editing.place === key ? null : key; renderGallery(); };
@@ -2276,10 +2281,14 @@ footer { color: var(--muted); font-size: 12.5px; display: flex; justify-content:
           const end = start + Math.min(45, TRIP_SHOOT + 5 * (got.length - 1)) * MIN;
           if (end > limit + 1 || start + TRIP_SHOOT * MIN > r.b + 1) continue;
           let cand = { start, end, kind: r.kind, tr, rangeEnd: r.b, got, tip: r.tip, pre: r.kind === "night" && s.deep[0] && start < +s.deep[0] };
-          if (got.length < st.items.length) {
-            let end2 = end, kind2 = null; const more = [];
-            st.items.forEach((it2, i) => { if (got.includes(it2)) return; const q = rs[i].filter((q) => q.a > start && q.a - start <= STAY_ON * MIN && q.b - Math.max(q.a, start) >= TRIP_SHOOT * MIN).sort((x, y) => x.a - y.a)[0]; if (!q) return; const e2 = Math.max(q.a, start) + TRIP_SHOOT * MIN; if (e2 > q.b + 1) return; more.push(it2); end2 = Math.max(end2, e2); if (q.kind !== r.kind) kind2 = q.kind; });
-            if (more.length && end2 <= limit + 1 && end2 - start <= (STAY_ON + TRIP_SHOOT) * MIN) cand = { ...cand, end: end2, got: got.concat(more), kind2 };
+          if (cand.got.length < st.items.length) {
+            const join = st.items.filter((it2) => !cand.got.includes(it2) && itemRanges({ ...it2, hint: null }, s, dayStart, dayEnd).some((q) => q.kind === r.kind && start >= q.a - 1 && start + TRIP_SHOOT * MIN <= q.b + 1));
+            if (join.length) { const e3 = Math.max(cand.end, start + Math.min(45, TRIP_SHOOT + 5 * (cand.got.length + join.length - 1)) * MIN); if (e3 <= limit + 1) cand = { ...cand, got: cand.got.concat(join), end: e3 }; }
+          }
+          if (cand.got.length < st.items.length) {
+            let end2 = cand.end, kind2 = null; const more = [];
+            st.items.forEach((it2, i) => { if (cand.got.includes(it2)) return; const q = rs[i].filter((q) => q.a > start && q.kind !== r.kind && q.kind !== "day" && q.kind !== "anytime" && q.a - start <= STAY_ON * MIN && q.b - Math.max(q.a, start) >= TRIP_SHOOT * MIN).sort((x, y) => x.a - y.a)[0]; if (!q) return; const e2 = Math.max(q.a, start) + TRIP_SHOOT * MIN; if (e2 > q.b + 1) return; more.push(it2); end2 = Math.max(end2, e2); if (q.kind !== r.kind) kind2 = q.kind; });
+            if (more.length && end2 <= limit + 1 && end2 - start <= (STAY_ON + TRIP_SHOOT) * MIN) cand = { ...cand, end: end2, got: cand.got.concat(more), kind2 };
           }
           // Earliest start wins, but waiting up to 15 min is worth it to shoot more photos in one visit
           const better = !best || (got.length > best.got.length ? cand.start - best.start <= 15 * MIN : got.length < best.got.length ? best.start - cand.start > 15 * MIN : cand.start < best.start);
@@ -2410,7 +2419,7 @@ footer { color: var(--muted); font-size: 12.5px; display: flex; justify-content:
           if (sl.dataset.plan) {
             const [pid, plid] = sl.dataset.plan.split("|"); const ph = state.photos.find((x) => x.id === pid); if (!ph) return;
             const at = day.dataset.date + "T" + hhmmIn(t, R.tz);
-            actionSheet(`Move your plan to ${tripFmt(R.tz).format(new Date(t))}, ${tripDay(day.dataset.date)}?`, [{ label: "Move My Plan", run: () => { updatePhoto(pid, { plans: (ph.plans || []).map((x) => x.id === plid ? { ...x, at } : x) }); toast("Plan moved. The rest of the day fits around it."); } }]);
+            sheetFromHold = true; actionSheet(`Move your plan to ${tripFmt(R.tz).format(new Date(t))}, ${tripDay(day.dataset.date)}?`, [{ label: "Move My Plan", run: () => { updatePhoto(pid, { plans: (ph.plans || []).map((x) => x.id === plid ? { ...x, at } : x) }); toast("Plan moved. The rest of the day fits around it."); } }]);
             return;
           }
           const pins = ((c.trip || {}).pins || []).filter((x) => x.id !== sl.dataset.pin);
@@ -2435,7 +2444,7 @@ footer { color: var(--muted); font-size: 12.5px; display: flex; justify-content:
   }
   function renderTrip() {
     const c = state.cities.find((x) => x.id === tripCity); if (!c) { if (tripCity) closeTrip(); return; }
-    $("tripTitle").textContent = `Trip plan · ${c.name}`;
+    $("tripTitle").textContent = `Shot plan · ${c.name}`;
     $("tripBack").textContent = `‹ ${c.name}`;
     const wins = ((c.trip || {}).windows || []);
     $("tripWins").innerHTML = wins.length ? wins.map((w) => `<div class="twin${tripEdit === w.id ? " editing" : ""}"><button class="tw" type="button" data-edit="${esc(w.id)}"><span class="twd">${esc(tripDay(w.date))}</span><span class="twt">${esc(fmt12(w.from))} – ${esc(fmt12(w.to))}<small>${tripEdit === w.id ? "Changing…" : "Edit"}</small></span></button><button class="x" type="button" data-id="${esc(w.id)}" aria-label="Remove this time">Remove</button></div>`).join("") : `<div class="note">Add each block of time you can go out shooting, e.g. Saturday 5:30–10 AM and 5–9 PM. Times are local time in ${esc(c.name)}.</div>`;
@@ -2467,13 +2476,13 @@ footer { color: var(--muted); font-size: 12.5px; display: flex; justify-content:
     const visitNo = new Map();
     const tickBtn = (ids) => `<button type="button" class="tick" data-shot="${esc(ids.join(","))}" aria-label="Mark as shot"></button>`;
     const alsoHtml = (it) => { const host = it.type === "stop" ? it.st : it.fx; const a = (host && host.also) || []; if (!a.length) return ""; const needs = [...new Set(a.map((x) => x.need).filter(Boolean))]; return `<div class="also"><div class="tl">Also here, not on the plan yet: ${a.length} photo${a.length > 1 ? "s" : ""}${needs.length ? ` that need${a.length > 1 ? "" : "s"} ${esc(needs.join(" or "))}` : ""}. Add a free time then to come back for ${a.length > 1 ? "them" : "it"}.</div><div class="thumbs alsothumbs">${a.map((x) => `<img alt="" src="${blobUrl(x.p.thumbId)}" data-id="${esc(x.p.id)}">`).join("")}</div></div>`; };
-    const slot = (it, inner) => { { const ah = alsoHtml(it); if (ah) inner = inner.replace(/<div class="acts">/, ah + '<div class="acts">'); } inner = inner.replace(/^([\s\S]*?<div class="tstop[^"]*"[^>]*>)/, (m) => m + tickBtn(it.type === "stop" ? it.st.photos.map((p) => p.id) : it.type === "pin" ? it.fx.photos.map((p) => p.id) : [it.fx.p.id])); inner = inner.replace(/(<div class="tn">[\s\S]*?<\/div>)/, (m) => m + moreHint(it)); const ll = it.type === "stop" ? it.st.ll : it.fx.ll; const ids = it.type === "stop" ? it.st.photos.map((p) => p.id) : it.type === "pin" ? it.fx.photos.map((p) => p.id) : []; return `<div class="tslot${it.type === "plan" ? " still" : ""}" data-end="${it.end}" data-lat="${ll ? ll.lat : ""}" data-lng="${ll ? ll.lng : ""}" data-ids="${esc(ids.join(","))}"${it.type === "pin" ? ` data-pin="${esc(it.fx.pin.id)}"` : ""}${it.type === "plan" ? ` data-plan="${esc(it.fx.p.id + "|" + it.fx.pl.id)}"` : ""}>${inner}</div>`; };
+    const slot = (it, inner) => { { const ah = alsoHtml(it); if (ah) inner = inner.replace(/<div class="acts">/, ah + '<div class="acts">'); } inner = inner.replace(/^([\s\S]*?<div class="tstop[^"]*"[^>]*>)/, (m) => m + `<button type="button" class="tedit" data-tedit>Edit</button>` + tickBtn(it.type === "stop" ? it.st.photos.map((p) => p.id) : it.type === "pin" ? it.fx.photos.map((p) => p.id) : [it.fx.p.id])); inner = inner.replace(/(<div class="tn">[\s\S]*?<\/div>)/, (m) => m + moreHint(it)); const ll = it.type === "stop" ? it.st.ll : it.fx.ll; const ids = it.type === "stop" ? it.st.photos.map((p) => p.id) : it.type === "pin" ? it.fx.photos.map((p) => p.id) : []; return `<div class="tslot${it.type === "plan" ? " still" : ""}" data-end="${it.end}" data-lat="${ll ? ll.lat : ""}" data-lng="${ll ? ll.lng : ""}" data-ids="${esc(ids.join(","))}"${it.type === "pin" ? ` data-pin="${esc(it.fx.pin.id)}"` : ""}${it.type === "plan" ? ` data-plan="${esc(it.fx.p.id + "|" + it.fx.pl.id)}"` : ""}>${inner}</div>`; };
     const camHtml = (photos) => photos.filter((p) => p.cam_setup).map((p) => { const c = p.cam_setup, sm = camSummary(c), left = (c.df || []).filter((d) => !d.done).map((d) => d.t); return `<div class="tcam">📷 ${esc(sm.join(" · ") || "Camera setup")}${left.length ? `<br><span class="tdf">Don't forget: ${esc(left.join(" · "))}</span>` : ""}</div>`; }).join("");
     const stopHtml = (it) => {
       if (it.type === "plan") { const fx = it.fx, from = fx.pl.from ? (fx.pl.from.name || "your pin") : ""; return `${legHtml(it)}<div class="tstop fixed"><div class="tt">📌 ${T(it.start)} <small>· your plan</small>${GRIP}</div><div class="tn">${esc(fx.p.spot || "Your plan")}</div>${from ? `<div class="tl">From ${esc(from)}${fx.pl.aim ? " · aiming at " + esc(fx.pl.aim) : ""}</div>` : ""}${fx.pl.notes ? `<div class="tip">${esc(fx.pl.notes)}</div>` : ""}${camHtml([fx.p])}<div class="thumbs"><img alt="" src="${blobUrl(fx.p.thumbId)}" data-id="${esc(fx.p.id)}"></div><div class="acts"><a class="btn primary sm" href="${esc(fx.href)}" target="_blank" rel="noopener">Open in Google Maps</a><button class="btn sm" type="button" data-editplan="${esc(fx.p.id + "|" + fx.pl.id)}">Edit plan (time, place)</button></div></div>`; }
       if (it.type === "pin") { const fx = it.fx, n = fx.photos.length; return `${legHtml(it)}<div class="tstop fixed" data-pin="${esc(fx.pin.id)}"><div class="tt">${T(it.start)} – ${T(it.end)} <small>· your time</small>${GRIP}</div>${fx.warn ? `<div class="tl warn" style="color:var(--warn)">Outside ${esc(fx.warn.what)}: ${T(fx.warn.a)} – ${T(fx.warn.b)}.</div>` : ""}<div class="tn">${esc(fx.name)}${n > 1 ? ` <small style="color:var(--muted)">(${n} photos)</small>` : ""}</div>${fx.tip ? `<div class="tip">${esc(fx.tip)}</div>` : ""}${camHtml(fx.photos)}<div class="thumbs">${fx.photos.map((p) => `<img alt="" src="${blobUrl(p.thumbId)}" data-id="${esc(p.id)}">`).join("")}</div><div class="acts"><a class="btn primary sm" href="${esc(fx.href)}" target="_blank" rel="noopener">Open in Google Maps</a><button class="btn sm" type="button" data-retime="pin">Change day or time</button><button class="btn ghost sm" type="button" data-unpin="${esc(fx.pin.id)}">Let the app choose</button></div><div class="retime" hidden></div></div>`; }
       const st = it.st, n = st.photos.length;
-      return `${legHtml(it)}<div class="tstop" data-key="${esc(st.key)}"><div class="tt">${T(it.start)} – ${T(it.end)} <small>· ${(() => { const L = (k) => (LIGHTS.find(([x]) => x === k) || [, "Any time"])[1]; const k1 = it.kind, k2 = it.kind2; const broad = (k) => k === "anytime" || k === "day"; if (!k2) return esc(L(k1)); if (k1 === "anytime") return esc(L(k2)); if (broad(k2)) return esc(L(k1)); return esc(L(k1) + " → " + L(k2)); })()}${(() => { const n = (visitNo.get(st.key) || 0) + 1; visitNo.set(st.key, n); return n > 1 ? ` · ${n === 2 ? "2nd" : n === 3 ? "3rd" : n + "th"} visit` : ""; })()}${st.star ? " · ★ Must-have" : ""}</small>${GRIP}</div><div class="tn">${esc(st.name)}${n > 1 ? ` <small style="color:var(--muted)">(${n} photos)</small>` : ""}</div>${st.hint ? `<div class="tl">Timed to the tip: ${esc(st.hint)}</div>` : ""}${st.weekNote ? `<div class="tl warn" style="color:var(--warn)">${esc(st.weekNote)}</div>` : ""}${st.tip ? `<div class="tip">${esc(st.tip)}</div>` : ""}${st.rough ? `<div class="tl">No exact pin for this one, so travel time is a guess.</div>` : ""}${camHtml(st.photos)}<div class="thumbs">${st.photos.map((p) => `<img alt="" src="${blobUrl(p.thumbId)}" data-id="${esc(p.id)}">`).join("")}</div><div class="acts"><a class="btn primary sm" href="${esc(st.href)}" target="_blank" rel="noopener">Open in Google Maps</a><button class="btn sm" type="button" data-retime="stop" data-ids="${esc(st.photos.map((p) => p.id).join(","))}" data-date="${esc(it.date)}" data-at="${it.start}">Change day or time</button><button class="btn ghost sm" type="button" data-skip="${esc(st.key)}" data-ids="${esc(st.photos.map((p) => p.id).join(","))}">Skip</button></div><div class="retime" hidden></div></div>`;
+      return `${legHtml(it)}<div class="tstop" data-key="${esc(st.key)}"><div class="tt">${T(it.start)} – ${T(it.end)} <small>· ${(() => { const L = (k) => (LIGHTS.find(([x]) => x === k) || [, "Any time"])[1]; const k1 = it.kind, k2 = it.kind2; const broad = (k) => k === "anytime" || k === "day"; if (!k2) return esc(L(k1)); if (k1 === "anytime") return esc(L(k2)); if (broad(k2)) return esc(L(k1)); return esc(L(k1) + " → " + L(k2)); })()}${(() => { const n = (visitNo.get(st.key) || 0) + 1; visitNo.set(st.key, n); return n > 1 ? ` · ${n === 2 ? "2nd" : n === 3 ? "3rd" : n + "th"} visit` : ""; })()}${st.star ? ' · ★<span class="mh"> Must-have</span>' : ""}</small>${GRIP}</div><div class="tn">${esc(st.name)}${n > 1 ? ` <small style="color:var(--muted)">(${n} photos)</small>` : ""}</div>${st.hint ? `<div class="tl">Timed to the tip: ${esc(st.hint)}</div>` : ""}${st.weekNote ? `<div class="tl warn" style="color:var(--warn)">${esc(st.weekNote)}</div>` : ""}${st.tip ? `<div class="tip">${esc(st.tip)}</div>` : ""}${st.rough ? `<div class="tl">No exact pin for this one, so travel time is a guess.</div>` : ""}${camHtml(st.photos)}<div class="thumbs">${st.photos.map((p) => `<img alt="" src="${blobUrl(p.thumbId)}" data-id="${esc(p.id)}">`).join("")}</div><div class="acts"><a class="btn primary sm" href="${esc(st.href)}" target="_blank" rel="noopener">Open in Google Maps</a><button class="btn sm" type="button" data-retime="stop" data-ids="${esc(st.photos.map((p) => p.id).join(","))}" data-date="${esc(it.date)}" data-at="${it.start}">Change day or time</button><button class="btn ghost sm" type="button" data-skip="${esc(st.key)}" data-ids="${esc(st.photos.map((p) => p.id).join(","))}">Skip</button></div><div class="retime" hidden></div></div>`;
     };
     for (const [date, parts] of [...days.entries()].sort((a, b) => a[0].localeCompare(b[0]))) {
       const s0 = parts.find((x) => x.s); const sunLine = s0 && cityCentre(c.id) && s0.s.rise[0] ? `Sunrise ${T(s0.s.rise[0])} · sunset ${T(s0.s.rise[1])}` : "";
@@ -2511,10 +2520,31 @@ footer { color: var(--muted); font-size: 12.5px; display: flex; justify-content:
         saveTrip(c, { pins: pinsNow }); toast("Time changed. The rest of the plan moves around it.");
       };
     });
+    let cardKey;
     tripDrag(c, R);
+    // Edit a stop right here: day or time, best light, the photos, or skip it
+    $("tripOut").querySelectorAll("[data-tedit]").forEach((b) => b.onclick = (e) => {
+      e.stopPropagation(); e.preventDefault();
+      if (Date.now() - (window.__tripDragEnd || 0) < 600 || $("tripOut").classList.contains("dragmode")) return;
+      const card = b.closest(".tstop"), sl = b.closest(".tslot"), ids = (sl.dataset.ids || "").split(",").filter(Boolean);
+      if (sl.dataset.plan) { const ep = card.querySelector("[data-editplan]"); if (ep) ep.click(); return; }
+      const ps = ids.map((id) => state.photos.find((p) => p.id === id)).filter(Boolean); if (!ps.length) return;
+      const name = (card.querySelector(".tn") || {}).childNodes ? card.querySelector(".tn").childNodes[0].textContent.trim() : "";
+      const common = LIGHTS.map(([k]) => k).filter((k) => k !== "moon" && ps.every((p) => lightsOf(p).includes(k)));
+      const L = (k) => (LIGHTS.find(([x]) => x === k) || [, k])[1];
+      const openCard = () => { if (!card.classList.contains("open")) { card.classList.add("open"); (window.__tripOpen = window.__tripOpen || new Set()).add(cardKey(card)); } };
+      const acts = [
+        { label: "Change day or time", run: () => { openCard(); const rb = card.querySelector("[data-retime]"); if (rb) { rb.click(); setTimeout(() => { const bx = card.querySelector(".retime"); if (bx) bx.scrollIntoView({ block: "center", behavior: "smooth" }); }, 50); } } },
+        { label: `Change best light${common.length ? ` (now ${common.map(L).join(", ")})` : ""}`, run: () => setTimeout(() => actionSheet(ps.length > 1 ? `Best light for these ${ps.length} photos` : "Best light for this photo", LIGHTS.filter(([k]) => k !== "moon").map(([k, lab]) => ({ label: `${common.length === 1 && common[0] === k ? "✓ " : ""}${lab}`, run: async () => { for (const p of ps) await updatePhoto(p.id, { lights: [k].concat(lightsOf(p).includes("moon") ? ["moon"] : []), light: null }); toast(`Best light set to ${lab}. The plan moves around it.`); } }))), 30) },
+        { label: ps.length > 1 ? `See the ${ps.length} photos` : "See the photo", run: () => openLightboxById(ps[0].id) },
+      ];
+      const unpin = card.querySelector("[data-unpin]"); if (unpin) acts.push({ label: "Let the app choose the time", run: () => unpin.click() });
+      const skip = card.querySelector("[data-skip]"); if (skip) acts.push({ label: "Skip this place", run: () => skip.click() });
+      actionSheet(name, acts);
+    });
     // Tap a stop to open or close its details; open ones stay open when the plan redraws
     const openSet = (window.__tripOpen = window.__tripOpen || new Set());
-    const cardKey = (card) => { const sl = card.closest(".tslot"); return (sl.dataset.pin || "") + "|" + (sl.dataset.ids || "") + "|" + (card.querySelector(".tn") || {}).textContent; };
+    cardKey = (card) => { const sl = card.closest(".tslot"); return (sl.dataset.pin || "") + "|" + (sl.dataset.ids || "") + "|" + (card.querySelector(".tn") || {}).textContent; };
     $("tripOut").querySelectorAll(".tstop").forEach((card) => {
       if (openSet.has(cardKey(card))) card.classList.add("open");
       card.addEventListener("click", (e) => {
