@@ -66,9 +66,33 @@
     const a = document.createElement("a"); a.href = URL.createObjectURL(file); a.download = file.name; document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 5000);
     return { downloaded: true, photos: out.photos.length };
   };
+  // Reads a .zip (stored or compressed) into a list of files, using the browser's own decompressor.
+  const unzip = async (zip) => {
+    const buf = new Uint8Array(await zip.arrayBuffer()); const v = new DataView(buf.buffer); const out = [];
+    let e = buf.length - 22; while (e >= 0 && v.getUint32(e, true) !== 0x06054b50) e--;
+    if (e < 0) throw new Error("That zip file looks damaged.");
+    let p = v.getUint32(e + 16, true); const n = v.getUint16(e + 10, true);
+    for (let i = 0; i < n; i++) {
+      const method = v.getUint16(p + 10, true), csize = v.getUint32(p + 20, true), nl = v.getUint16(p + 28, true), xl = v.getUint16(p + 30, true), cl = v.getUint16(p + 32, true), lo = v.getUint32(p + 42, true);
+      const name = new TextDecoder().decode(buf.subarray(p + 46, p + 46 + nl)); p += 46 + nl + xl + cl;
+      const ds = lo + 30 + v.getUint16(lo + 26, true) + v.getUint16(lo + 28, true); const raw = buf.subarray(ds, ds + csize);
+      let blob = new Blob([raw]);
+      if (method === 8) blob = await new Response(blob.stream().pipeThrough(new DecompressionStream("deflate-raw"))).blob();
+      else if (method !== 0) continue;
+      out.push(new File([blob], name));
+    }
+    return out;
+  };
   // Adds what's in the file; anything with the same id is replaced by the file's copy. Nothing else is removed.
   window.shotRestore = async (file) => {
     await ready;
+    const head = new Uint8Array(await file.slice(0, 2).arrayBuffer());
+    if (head[0] === 0x50 && head[1] === 0x4b) { // a .zip: restore every backup inside it
+      let t = { photos: 0, cities: 0, images: 0 };
+      for (const f of await unzip(file)) { if (!/\.json$/i.test(f.name) || /^__MACOSX|\/\._/.test(f.name)) continue; const r = await window.shotRestore(f); t.photos += r.photos; t.cities = Math.max(t.cities, r.cities); t.images += r.images; }
+      if (!t.photos) throw new Error("No Shotinerary backup inside that zip.");
+      return t;
+    }
     const data = JSON.parse(await file.text());
     if (!data || data.app !== "shotinerary" || !Array.isArray(data.photos)) throw new Error("This isn't a Shotinerary backup file.");
     let nb = 0;
