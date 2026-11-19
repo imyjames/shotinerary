@@ -324,6 +324,7 @@ body.selecting { padding-bottom: 120px; }
 .tstop.open .more { display: none; }
 .tstop.open .tt { cursor: pointer; }
 .tslot.dragging { display: none; }
+.tslot.lifting .tstop { transform: scale(1.02); box-shadow: 0 6px 20px rgba(0,0,0,.5); transition: transform .2s, box-shadow .2s; }
 #tripOut.dragmode .tslot .tip, #tripOut.dragmode .tslot .tcam, #tripOut.dragmode .tslot .thumbs, #tripOut.dragmode .tslot .acts, #tripOut.dragmode .tslot .tl, #tripOut.dragmode .tslot .retime, #tripOut.dragmode .tslot .ttravel, #tripOut.dragmode .tday > .note, #tripOut.dragmode .sec { display: none; }
 #tripOut.dragmode .tslot .tstop { padding: 8px 12px; gap: 2px; }
 .dragghost .tip, .dragghost .tcam, .dragghost .thumbs, .dragghost .acts, .dragghost .tl, .dragghost .ttravel, .dragghost .retime { display: none; }
@@ -2392,6 +2393,7 @@ footer { color: var(--muted); font-size: 12.5px; display: flex; justify-content:
   function hhmmIn(ms, tz) { try { const parts = Object.fromEntries(new Intl.DateTimeFormat("en-GB", { timeZone: tz || undefined, hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).formatToParts(new Date(ms)).map((x) => [x.type, x.value])); return `${parts.hour}:${parts.minute}`; } catch { return ""; } }
   function tripDrag(c, R) {
     const out = $("tripOut"), scroller = $("trip");
+    if (!out.__tmv) { out.__tmv = true; out.addEventListener("touchmove", (ev) => { if (out.classList.contains("dragmode") && ev.cancelable) ev.preventDefault(); }, { passive: false }); }
     out.querySelectorAll(".tslot").forEach((sl) => {
       const grip = sl.querySelector(".grip"); if (!grip) return;
       const begin = (e) => {
@@ -2426,6 +2428,42 @@ footer { color: var(--muted); font-size: 12.5px; display: flex; justify-content:
           const day = ph.closest(".tday"); const unchanged = ph.previousElementSibling === sl || ph.nextElementSibling === sl;
           ph.remove();
           if (!prev || !day || unchanged) return;
+          tripCommit(c, R, sl, prev, day);
+        };
+        if (touch) { document.addEventListener("touchmove", move, { passive: false }); document.addEventListener("touchend", end); document.addEventListener("touchcancel", end); }
+        else { document.addEventListener("pointermove", move, { passive: false }); document.addEventListener("pointerup", end); document.addEventListener("pointercancel", end); document.addEventListener("touchmove", blockScroll, { passive: false }); }
+        place();
+      };
+      // The ≡ handle drags straight away.
+      grip.addEventListener("touchstart", (e) => { if (e.touches.length > 1) return; e.preventDefault(); const q = e.touches[0]; begin({ type: "touchstart", pointerType: "touch", clientX: q.clientX, clientY: q.clientY }); }, { passive: false });
+      grip.addEventListener("pointerdown", (e) => { if (e.pointerType === "touch" || e.button > 0) return; e.preventDefault(); begin(e); });
+      // Press and hold anywhere on the card (like iPhone), without moving, also starts a drag.
+      const noHold = (t) => t.closest("a, button, select, input, .grip, .retime") || (t.closest("img") && t.closest(".tstop.open"));
+      // Finger (real iPhone): followed with touch events from the very first touch. iPhone Safari decides at the
+      // start of a touch whether the page may scroll; a drag that only starts listening half a second later can't
+      // stop the page scrolling under it, so the card never moves. #tripOut always has a touchmove listener that
+      // can stop scrolling (set up once, below), and it does so as soon as the hold has picked the card up.
+      sl.addEventListener("touchstart", (e) => {
+        if (e.touches.length > 1 || noHold(e.target)) return;
+        const t0 = e.touches[0], x0 = t0.clientX, y0 = t0.clientY;
+        const lift = setTimeout(() => sl.classList.add("lifting"), 250);
+        const timer = setTimeout(() => { cleanup(); begin({ type: "touchstart", pointerType: "touch", clientX: x0, clientY: y0 }); }, 450);
+        const mv = (ev) => { const q = ev.touches[0]; if (q && Math.hypot(q.clientX - x0, q.clientY - y0) > 10) cleanup(); };
+        const cleanup = () => { clearTimeout(timer); clearTimeout(lift); sl.classList.remove("lifting"); sl.removeEventListener("touchmove", mv); sl.removeEventListener("touchend", cleanup); sl.removeEventListener("touchcancel", cleanup); };
+        sl.addEventListener("touchmove", mv, { passive: true }); sl.addEventListener("touchend", cleanup); sl.addEventListener("touchcancel", cleanup);
+      }, { passive: true });
+      // Mouse or pen (Mac): pointer events
+      sl.addEventListener("pointerdown", (e) => {
+        if (e.pointerType === "touch" || e.button > 0 || noHold(e.target)) return;
+        const x0 = e.clientX, y0 = e.clientY; let timer = setTimeout(() => { cleanup(); begin(e); }, 450);
+        const mv = (ev) => { if (Math.hypot(ev.clientX - x0, ev.clientY - y0) > 8) cleanup(); };
+        const cleanup = () => { clearTimeout(timer); sl.removeEventListener("pointermove", mv); sl.removeEventListener("pointerup", cleanup); sl.removeEventListener("pointercancel", cleanup); };
+        sl.addEventListener("pointermove", mv); sl.addEventListener("pointerup", cleanup); sl.addEventListener("pointercancel", cleanup);
+      });
+    });
+  }
+  // Put a stop right after "prev" (a stop, or the start of a free time) on that day, and keep that time
+  function tripCommit(c, R, sl, prev, day) {
           const ll = { lat: +sl.dataset.lat, lng: +sl.dataset.lng };
           let t;
           if (prev.classList.contains("tfree")) t = +prev.dataset.a;
@@ -2438,24 +2476,24 @@ footer { color: var(--muted); font-size: 12.5px; display: flex; justify-content:
             return;
           }
           const pins = ((c.trip || {}).pins || []).filter((x) => x.id !== sl.dataset.pin);
-          pins.push({ id: sl.dataset.pin || newId(), date: day.dataset.date, time: hhmmIn(t, R.tz), photos: sl.dataset.ids.split(",").filter(Boolean) });
-          saveTrip(c, { pins }); toast("Moved. The rest of the plan moves around it.");
-        };
-        if (touch) { document.addEventListener("touchmove", move, { passive: false }); document.addEventListener("touchend", end); document.addEventListener("touchcancel", end); }
-        else { document.addEventListener("pointermove", move, { passive: false }); document.addEventListener("pointerup", end); document.addEventListener("pointercancel", end); document.addEventListener("touchmove", blockScroll, { passive: false }); }
-        place();
-      };
-      // The ≡ handle drags straight away.
-      grip.addEventListener("pointerdown", (e) => { if (e.button > 0) return; e.preventDefault(); begin(e); });
-      // Press and hold anywhere on the card (like iPhone), without moving, also starts a drag.
-      sl.addEventListener("pointerdown", (e) => {
-        if (e.button > 0 || e.target.closest("a, button, select, input, .grip, .retime") || (e.target.closest("img") && e.target.closest(".tstop.open"))) return;
-        const x0 = e.clientX, y0 = e.clientY; let timer = setTimeout(() => { cleanup(); begin(e); }, 450);
-        const mv = (ev) => { if (Math.hypot(ev.clientX - x0, ev.clientY - y0) > 8) cleanup(); };
-        const cleanup = () => { clearTimeout(timer); sl.removeEventListener("pointermove", mv); sl.removeEventListener("pointerup", cleanup); sl.removeEventListener("pointercancel", cleanup); };
-        sl.addEventListener("pointermove", mv); sl.addEventListener("pointerup", cleanup); sl.addEventListener("pointercancel", cleanup);
-      });
-    });
+          const myIds = sl.dataset.ids.split(",").filter(Boolean);
+          pins.push({ id: sl.dataset.pin || newId(), date: day.dataset.date, time: hhmmIn(t, R.tz), photos: myIds });
+          // You put this stop BEFORE the ones that follow it. Stops after it with a time you chose would now clash
+          // (or stay in front of it), so they move later, just enough to get there from the stop before.
+          // Without this, moving The Hive above Pan Pacific changed nothing you could see: Pan Pacific kept its time.
+          let curEnd = t + Math.min(45, TRIP_SHOOT + 5 * (myIds.length - 1)) * MIN, curLl = ll, shifted = 0;
+          const after = []; { let x = prev.nextElementSibling; while (x) { if (x.classList.contains("tslot") && x !== sl) after.push(x); x = x.nextElementSibling; } }
+          for (const x of after) {
+            const xl = { lat: +x.dataset.lat, lng: +x.dataset.lng }, need = curEnd + (x.dataset.lat && curLl && curLl.lat ? travel(curLl, xl, R.go).min : 0) * MIN;
+            if (x.dataset.plan) break; // your own plan for a photo is never moved for you
+            if (x.dataset.pin) {
+              const pn = pins.find((q) => q.id === x.dataset.pin); if (!pn) continue;
+              if (+x.dataset.start >= need - 60e3) break; // already fits after it: leave the rest alone
+              const nt = Math.ceil(need / (5 * MIN)) * 5 * MIN; pn.time = hhmmIn(nt, R.tz); pn.date = day.dataset.date; shifted++;
+              curEnd = nt + (+x.dataset.end - +x.dataset.start); curLl = xl;
+            }
+          }
+          saveTrip(c, { pins }); toast(shifted ? `Moved. ${shifted === 1 ? "The stop after it moves" : `${shifted} stops after it move`} later to make room.` : "Moved. The rest of the plan moves around it.");
   }
   function renderTrip() {
     const c = state.cities.find((x) => x.id === tripCity); if (!c) { if (tripCity) closeTrip(); return; }
@@ -2492,7 +2530,7 @@ footer { color: var(--muted); font-size: 12.5px; display: flex; justify-content:
     const visitNo = new Map();
     const tickBtn = (ids) => `<button type="button" class="tick" data-shot="${esc(ids.join(","))}" aria-label="Mark as shot"></button>`;
     const alsoHtml = (it) => { const host = it.type === "stop" ? it.st : it.fx; const a = (host && host.also) || []; if (!a.length) return ""; const needs = [...new Set(a.map((x) => x.need).filter(Boolean))]; return `<div class="also"><div class="tl">Also here, not on the plan yet: ${a.length} photo${a.length > 1 ? "s" : ""}${needs.length ? ` that need${a.length > 1 ? "" : "s"} ${esc(needs.join(" or "))}` : ""}. Add a free time then to come back for ${a.length > 1 ? "them" : "it"}.</div><div class="thumbs alsothumbs">${a.map((x) => `<img alt="" src="${blobUrl(x.p.thumbId)}" data-id="${esc(x.p.id)}">`).join("")}</div></div>`; };
-    const slot = (it, inner) => { { const ah = alsoHtml(it); if (ah) inner = inner.replace(/<div class="acts">/, ah + '<div class="acts">'); } inner = inner.replace(/^([\s\S]*?<div class="tstop[^"]*"[^>]*>)/, (m) => m + `<button type="button" class="tedit" data-tedit><span class="te1">Edit</span><span class="te2">Done</span></button>` + tickBtn(it.type === "stop" ? it.st.photos.map((p) => p.id) : it.type === "pin" ? it.fx.photos.map((p) => p.id) : [it.fx.p.id])); inner = inner.replace(/(<div class="tn">[\s\S]*?<\/div>)/, (m) => m + moreHint(it) + (it.clash ? `<div class="clashl">⚠️ Clashes with the stop before. With the travel time you'd get here about ${T(it.clashAt)}, ${it.clash} min late. Tap Edit to change a time, or let the app choose.</div>` : "")); if (it.clash) inner = inner.replace('<div class="tt">', '<div class="tt clash">'); const ll = it.type === "stop" ? it.st.ll : it.fx.ll; const ids = it.type === "stop" ? it.st.photos.map((p) => p.id) : it.type === "pin" ? it.fx.photos.map((p) => p.id) : []; return `<div class="tslot${it.type === "plan" ? " still" : ""}" data-end="${it.end}" data-lat="${ll ? ll.lat : ""}" data-lng="${ll ? ll.lng : ""}" data-ids="${esc(ids.join(","))}"${it.type === "pin" ? ` data-pin="${esc(it.fx.pin.id)}"` : ""}${it.type === "plan" ? ` data-plan="${esc(it.fx.p.id + "|" + it.fx.pl.id)}"` : ""}>${inner}</div>`; };
+    const slot = (it, inner) => { { const ah = alsoHtml(it); if (ah) inner = inner.replace(/<div class="acts">/, ah + '<div class="acts">'); } inner = inner.replace(/^([\s\S]*?<div class="tstop[^"]*"[^>]*>)/, (m) => m + `<button type="button" class="tedit" data-tedit><span class="te1">Edit</span><span class="te2">Done</span></button>` + tickBtn(it.type === "stop" ? it.st.photos.map((p) => p.id) : it.type === "pin" ? it.fx.photos.map((p) => p.id) : [it.fx.p.id])); inner = inner.replace(/(<div class="tn">[\s\S]*?<\/div>)/, (m) => m + moreHint(it) + (it.clash ? `<div class="clashl">⚠️ Clashes with the stop before. With the travel time you'd get here about ${T(it.clashAt)}, ${it.clash} min late. Tap Edit to change a time, or let the app choose.</div>` : "")); if (it.clash) inner = inner.replace('<div class="tt">', '<div class="tt clash">'); const ll = it.type === "stop" ? it.st.ll : it.fx.ll; const ids = it.type === "stop" ? it.st.photos.map((p) => p.id) : it.type === "pin" ? it.fx.photos.map((p) => p.id) : []; return `<div class="tslot${it.type === "plan" ? " still" : ""}" data-start="${it.start}" data-end="${it.end}" data-lat="${ll ? ll.lat : ""}" data-lng="${ll ? ll.lng : ""}" data-ids="${esc(ids.join(","))}"${it.type === "pin" ? ` data-pin="${esc(it.fx.pin.id)}"` : ""}${it.type === "plan" ? ` data-plan="${esc(it.fx.p.id + "|" + it.fx.pl.id)}"` : ""}>${inner}</div>`; };
     const camHtml = (photos) => photos.filter((p) => p.cam_setup).map((p) => { const c = p.cam_setup, sm = camSummary(c), left = (c.df || []).filter((d) => !d.done).map((d) => d.t); return `<div class="tcam">📷 ${esc(sm.join(" · ") || "Camera setup")}${left.length ? `<br><span class="tdf">Don't forget: ${esc(left.join(" · "))}</span>` : ""}</div>`; }).join("");
     const stopHtml = (it) => {
       if (it.type === "plan") { const fx = it.fx, from = fx.pl.from ? (fx.pl.from.name || "your pin") : ""; return `${legHtml(it)}<div class="tstop fixed"><div class="tt">📌 ${T(it.start)} <small>· your plan</small>${GRIP}</div><div class="tn">${esc(fx.p.spot || "Your plan")}</div>${from ? `<div class="tl">From ${esc(from)}${fx.pl.aim ? " · aiming at " + esc(fx.pl.aim) : ""}</div>` : ""}${fx.pl.notes ? `<div class="tip">${esc(fx.pl.notes)}</div>` : ""}${camHtml([fx.p])}<div class="thumbs"><img alt="" src="${blobUrl(fx.p.thumbId)}" data-id="${esc(fx.p.id)}"></div><div class="acts"><a class="btn primary sm" href="${esc(fx.href)}" target="_blank" rel="noopener">Open in Google Maps</a><button class="btn sm" type="button" data-editplan="${esc(fx.p.id + "|" + fx.pl.id)}">Edit plan (time, place)</button></div></div>`; }
@@ -2558,6 +2596,10 @@ footer { color: var(--muted); font-size: 12.5px; display: flex; justify-content:
         { label: `Change best light${common.length ? ` (now ${common.map(L).join(", ")})` : ""}`, run: () => setTimeout(() => actionSheet(ps.length > 1 ? `Best light for these ${ps.length} photos` : "Best light for this photo", LIGHTS.filter(([k]) => k !== "moon").map(([k, lab]) => ({ label: `${common.length === 1 && common[0] === k ? "✓ " : ""}${lab}`, run: async () => { for (const p of ps) await updatePhoto(p.id, { lights: [k].concat(lightsOf(p).includes("moon") ? ["moon"] : []), light: null }); toast(`Best light set to ${lab}. The plan moves around it.`); } }))), 30) },
         { label: ps.length > 1 ? `See the ${ps.length} photos` : "See the photo", run: () => openLightboxById(ps[0].id) },
       ];
+      const slots = [...$("tripOut").querySelectorAll(".tday .tslot")], idx = slots.indexOf(sl);
+      const anchorBefore = (el) => { let x = el.previousElementSibling; while (x && !(x.classList.contains("tslot") || x.classList.contains("tfree"))) x = x.previousElementSibling; return x; };
+      if (idx > 0) { const up = slots[idx - 1]; acts.splice(1, 0, { label: `Move earlier (before ${(up.querySelector(".tn") || {}).textContent ? up.querySelector(".tn").childNodes[0].textContent.trim() : "the stop before"})`, run: () => { const prev = anchorBefore(up); if (prev && prev !== sl) tripCommit(c, R, sl, prev, up.closest(".tday")); } }); }
+      if (idx >= 0 && idx < slots.length - 1) { const dn = slots[idx + 1]; acts.splice(idx > 0 ? 2 : 1, 0, { label: `Move later (after ${dn.querySelector(".tn") ? dn.querySelector(".tn").childNodes[0].textContent.trim() : "the next stop"})`, run: () => tripCommit(c, R, sl, dn, dn.closest(".tday")) }); }
       const unpin = card.querySelector("[data-unpin]"); if (unpin) acts.push({ label: "Let the app choose the time", run: () => unpin.click() });
       const skip = card.querySelector("[data-skip]"); if (skip) acts.push({ label: "Skip this place", run: () => skip.click() });
       actionSheet(name, acts);
