@@ -347,7 +347,10 @@ body.selecting { padding-bottom: 120px; }
 .tstop.open .tn, .tstop.open .more { padding-right: 40px; }
 .tedit { position: absolute; top: 0; right: 44px; height: 48px; padding: 0 6px; background: none; border: 0; color: var(--accent); font: inherit; font-size: 16px; cursor: pointer; }
 .tstop:not(.open) .mh, .tstop:not(.open) .clashl { display: none; }
-.tstop .moonl { color: var(--fg); } 
+.tstop .moonl { color: var(--fg); }
+.tstop .wxl { color: var(--fg); display: flex; flex-direction: column; gap: 2px; } .tstop .wxl small { color: var(--muted); font-size: 13px; }
+.tstop:not(.open) > .wxl { display: none; }
+.tday h3 small.wxday { display: block; margin-top: 2px; } 
 .tstop .tedit .te2, .tstop.open .tedit .te1 { display: none; } .tstop.open .tedit .te2 { display: inline; font-weight: 600; }
 .tstop:not(.open) .tedit { top: 50%; transform: translateY(-50%); }
 .tstop { padding-left: 58px !important; }
@@ -2728,6 +2731,42 @@ footer { color: var(--muted); font-size: 12.5px; display: flex; justify-content:
           }
           saveTrip(c, { pins }); toast(shifted ? `Moved. ${shifted === 1 ? "The stop after it moves" : `${shifted} stops after it move`} later to make room.` : "Moved. The rest of the plan moves around it.");
   }
+  // ---------- Weather: a free forecast (Open-Meteo, no account), kept on the phone so it still shows offline ----------
+  // Clouds are not "bad" here: high and middle clouds with a clear horizon are what light up at sunrise and sunset.
+  const WX_TTL = 3 * 3600e3, wxBusy = {};
+  const wxKey = (ll) => `shotinerary.wx.${ll.lat.toFixed(1)},${ll.lng.toFixed(1)}`;
+  function wxGet(ll) {
+    if (!ll) return null; const k = wxKey(ll); let d = null;
+    try { d = JSON.parse(localStorage.getItem(k) || "null"); } catch {}
+    if ((!d || Date.now() - d.at > WX_TTL) && !wxBusy[k] && navigator.onLine !== false && typeof fetch === "function") {
+      wxBusy[k] = true;
+      const u = `https://api.open-meteo.com/v1/forecast?latitude=${ll.lat.toFixed(2)}&longitude=${ll.lng.toFixed(2)}&hourly=cloud_cover,cloud_cover_low,cloud_cover_mid,cloud_cover_high,precipitation_probability,visibility,weather_code,temperature_2m&timeformat=unixtime&timezone=GMT&forecast_days=16`;
+      fetch(u).then((res) => res.ok ? res.json() : Promise.reject(res.status)).then((j) => {
+        const H = j.hourly || {}; if (!Array.isArray(H.time) || !H.time.length) return;
+        const nd = { at: Date.now(), t: H.time, c: H.cloud_cover || [], lo: H.cloud_cover_low || [], mid: H.cloud_cover_mid || [], hi: H.cloud_cover_high || [], pp: H.precipitation_probability || [], vis: H.visibility || [], code: H.weather_code || [], temp: H.temperature_2m || [] };
+        try { localStorage.setItem(k, JSON.stringify(nd)); } catch {}
+        if (tripCity && !$("trip").hidden && !$("tripOut").classList.contains("dragmode")) renderTrip();
+      }).catch(() => {}).finally(() => { setTimeout(() => { delete wxBusy[k]; }, 60e3); });
+    }
+    return d;
+  }
+  function wxAt(d, t) {
+    if (!d || !d.t || !d.t.length) return null; const i = Math.round((t / 1000 - d.t[0]) / 3600); if (i < 0 || i >= d.t.length) return null;
+    const v = (a) => (a[i] === null || a[i] === undefined ? null : Math.round(a[i]));
+    const w = { c: v(d.c), lo: v(d.lo), mid: v(d.mid), hi: v(d.hi), pp: v(d.pp), vis: d.vis[i] ?? null, code: v(d.code), temp: v(d.temp) };
+    return w.lo === null && w.c === null ? null : w;
+  }
+  // A photographer's reading of the sky, for the kind of light the stop is for
+  function wxHint(w, kind) {
+    const glow = kind === "sunrise" || kind === "sunset", moon = kind === "moon", lo = w.lo || 0, upper = Math.max(w.mid || 0, w.hi || 0), all = w.c ?? Math.max(lo, upper);
+    if ((w.pp || 0) >= 60) return { i: "🌧", s: `Rain likely (${w.pp}%)`, sh: "rain likely" };
+    if (w.vis !== null && w.vis < 4000) return { i: "🌫", s: `Hazy, ${(w.vis / 1000).toFixed(1)} km visibility`, sh: "hazy" };
+    if (lo >= 70) return { i: "☁️", s: glow ? "Thick low cloud may block the sun" : moon ? "Thick low cloud may hide the moon" : "Low cloud: soft, even light", sh: "thick low cloud" };
+    if (upper >= 25 && lo < 50) return { i: glow ? "🌅" : "⛅", s: glow ? "Good chance of colour in the clouds" : moon ? "Clouds around the moon" : "Clouds for drama", sh: glow ? "colour likely" : "clouds" };
+    if (all < 15) return { i: kind === "night" || moon ? "🌙" : "☀️", s: glow ? "Clear: clean light, little colour" : moon ? "Clear sky for the moon" : "Clear sky", sh: "clear" };
+    return { i: "⛅", s: "Some cloud", sh: "some cloud" };
+  }
+  const wxDetail = (w) => [w.lo !== null ? `Clouds: low ${w.lo}%, middle ${w.mid ?? 0}%, high ${w.hi ?? 0}%` : `Clouds ${w.c}%`, w.pp !== null ? `rain ${w.pp}%` : "", w.vis !== null ? `visibility ${w.vis >= 10000 ? Math.round(w.vis / 1000) : (w.vis / 1000).toFixed(1)} km` : "", w.temp !== null ? `${w.temp}°C` : ""].filter(Boolean).join(" · ");
   function renderTrip() {
     const c = state.cities.find((x) => x.id === tripCity); if (!c) { if (tripCity) closeTrip(); return; }
     $("tripTitle").textContent = `Shot plan · ${c.name}`;
@@ -2759,11 +2798,21 @@ footer { color: var(--muted); font-size: 12.5px; display: flex; justify-content:
       return `<div class="ttravel"><button type="button" class="legbtn" data-leg="${esc(it.tr.key)}" data-from="${esc(from || "")}" data-to="${esc(to)}" data-a="${it.tr.a ? it.tr.a.lat + "," + it.tr.a.lng : ""}" data-b="${it.tr.b ? it.tr.b.lat + "," + it.tr.b.lng : ""}" data-dir="${esc(gmDir(from, to, c.name, it.tr.gm))}" aria-label="${from ? "" : "Getting there: "}${esc(it.tr.how)}${from ? "" : " from the middle of town"}. Tap for directions or to change how you get there">${icon} ${it.tr.min ? `${it.tr.min} min` : esc(it.tr.how)}${from ? "" : " to get there"} <span class="chev">›</span></button></div>`;
     };
     const GRIP = `<span class="grip" role="button" aria-label="Drag to move" title="Drag to move">≡</span>`;
-    const moreHint = (it) => { const ps = it.type === "stop" ? it.st.photos : it.type === "pin" ? it.fx.photos : [it.fx.p]; const bits = []; if (it.clash) bits.push("⚠️ clashes"); if (ps.length > 1) bits.push(`${ps.length} photos`); { const host = it.type === "stop" ? it.st : it.fx; const n = ((host && host.also) || []).length; if (n) bits.push(`+${n} for another time`); } if ((it.type === "stop" && it.st.weekNote) || (it.type === "pin" && it.fx.warn)) bits.push("⚠️ check"); if ((it.type === "stop" && (it.st.tip || it.st.hint)) || (it.type === "pin" && it.fx.tip) || (it.type === "plan" && it.fx.pl.notes)) bits.push("tip"); const cs = ps.filter((p) => p.cam_setup); if (cs.length) { const left = cs.reduce((n, p) => n + (p.cam_setup.df || []).filter((d) => !d.done).length, 0); bits.push(left ? `📷 setup · ${left} to remember` : "📷 setup"); } return `<div class="more">${esc(bits.join(" · ") || "Tap for details")}</div>`; };
+    const WX = wxGet(cityCentre(c.id)), cc = cityCentre(c.id);
+    const lightKind = (it) => {
+      const ps = it.type === "stop" ? it.st.photos : it.type === "pin" ? it.fx.photos : [it.fx.p];
+      if (ps.some((p) => isMoonPhoto(p)) && (it.type === "plan" || !["sunrise", "sunset", "day"].includes(it.kind))) return "moon";
+      if (it.type === "stop" && it.kind && it.kind !== "anytime") return it.kind;
+      if (!cc) return "day"; const day = ymdIn(R.tz, new Date(it.start)); const s = Sun.times(Date.UTC(+day.slice(0, 4), +day.slice(5, 7) - 1, +day.slice(8, 10), 12) - (cc.lng / 15) * 3600e3, cc.lat, cc.lng);
+      if (!s.rise[0]) return "day"; const near = (x) => x && Math.abs(it.start - x) < 75 * 60e3;
+      return near(s.rise[0]) ? "sunrise" : near(s.rise[1]) ? "sunset" : it.start < s.rise[0] || it.start > s.rise[1] ? "night" : "day";
+    };
+    const wxOf = (it) => { const w = wxAt(WX, it.start); return w ? { w, h: wxHint(w, lightKind(it)) } : null; };
+    const moreHint = (it) => { const ps = it.type === "stop" ? it.st.photos : it.type === "pin" ? it.fx.photos : [it.fx.p]; const bits = []; if (it.clash) bits.push("⚠️ clashes"); if (ps.length > 1) bits.push(`${ps.length} photos`); { const host = it.type === "stop" ? it.st : it.fx; const n = ((host && host.also) || []).length; if (n) bits.push(`+${n} for another time`); } if ((it.type === "stop" && it.st.weekNote) || (it.type === "pin" && it.fx.warn)) bits.push("⚠️ check"); if ((it.type === "stop" && (it.st.tip || it.st.hint)) || (it.type === "pin" && it.fx.tip) || (it.type === "plan" && it.fx.pl.notes)) bits.push("tip"); const cs = ps.filter((p) => p.cam_setup); if (cs.length) { const left = cs.reduce((n, p) => n + (p.cam_setup.df || []).filter((d) => !d.done).length, 0); bits.push(left ? `📷 setup · ${left} to remember` : "📷 setup"); } { const x = wxOf(it); if (x) bits.unshift(`${x.h.i} ${x.h.s}`); } return `<div class="more">${esc(bits.join(" · ") || "Tap for details")}</div>`; };
     const visitNo = new Map();
     const tickBtn = (ids) => `<button type="button" class="tick" data-shot="${esc(ids.join(","))}" aria-label="Mark as shot"></button>`;
     const alsoHtml = (it) => { const host = it.type === "stop" ? it.st : it.fx; const a = (host && host.also) || []; if (!a.length) return ""; const needs = [...new Set(a.map((x) => x.need).filter(Boolean))]; return `<div class="also"><div class="tl">Also here, not on the plan yet: ${a.length} photo${a.length > 1 ? "s" : ""}${needs.length ? ` that need${a.length > 1 ? "" : "s"} ${esc(needs.join(" or "))}` : ""}. Add a free time then to come back for ${a.length > 1 ? "them" : "it"}.</div><div class="thumbs alsothumbs">${a.map((x) => `<img alt="" src="${blobUrl(x.p.thumbId)}" data-id="${esc(x.p.id)}">`).join("")}</div></div>`; };
-    const slot = (it, inner) => { { const ah = alsoHtml(it); if (ah) inner = inner.replace(/<div class="acts">/, ah + '<div class="acts">'); } inner = inner.replace(/^([\s\S]*?<div class="tstop[^"]*"[^>]*>)/, (m) => m + (it.type === "plan" ? "" : `<button type="button" class="tminus" data-minus aria-label="Skip">−</button>`) + tickBtn(it.type === "stop" ? it.st.photos.map((p) => p.id) : it.type === "pin" ? it.fx.photos.map((p) => p.id) : [it.fx.p.id])); inner = inner.replace(/(<div class="tn">[\s\S]*?<\/div>)/, (m) => m + moreHint(it) + (it.clash ? `<div class="clashl">⚠️ Clashes with the stop before. With the travel time you'd get here about ${T(it.clashAt)}, ${it.clash} min late. Tap Edit to change a time, or let the app choose.</div>` : "")); if (it.clash) inner = inner.replace('<div class="tt">', '<div class="tt clash">'); const ll = it.type === "stop" ? it.st.ll : it.fx.ll; const ids = it.type === "stop" ? it.st.photos.map((p) => p.id) : it.type === "pin" ? it.fx.photos.map((p) => p.id) : []; { const ti = inner.indexOf('<div class="tstop'); if (ti >= 0) inner = inner.slice(0, ti) + '<div class="swrow tsw">' + inner.slice(ti) + (it.type === "plan" ? `<div class="swacts"><button type="button" class="sw-edit" data-swplan>Edit plan</button></div>` : `<div class="swacts"><button type="button" class="sw-edit" data-swtime>Change time</button><button type="button" class="sw-del" data-swskip>Skip</button></div>`) + '</div>'; }
+    const slot = (it, inner) => { { const ah = alsoHtml(it); if (ah) inner = inner.replace(/<div class="acts">/, ah + '<div class="acts">'); } inner = inner.replace(/^([\s\S]*?<div class="tstop[^"]*"[^>]*>)/, (m) => m + (it.type === "plan" ? "" : `<button type="button" class="tminus" data-minus aria-label="Skip">−</button>`) + tickBtn(it.type === "stop" ? it.st.photos.map((p) => p.id) : it.type === "pin" ? it.fx.photos.map((p) => p.id) : [it.fx.p.id])); inner = inner.replace(/(<div class="tn">[\s\S]*?<\/div>)/, (m) => m + moreHint(it) + ((x) => x ? `<div class="tl wxl">${x.h.i} ${esc(x.h.s)}<small>${esc(wxDetail(x.w))}</small></div>` : "")(wxOf(it)) + (it.clash ? `<div class="clashl">⚠️ Clashes with the stop before. With the travel time you'd get here about ${T(it.clashAt)}, ${it.clash} min late. Tap Edit to change a time, or let the app choose.</div>` : "")); if (it.clash) inner = inner.replace('<div class="tt">', '<div class="tt clash">'); const ll = it.type === "stop" ? it.st.ll : it.fx.ll; const ids = it.type === "stop" ? it.st.photos.map((p) => p.id) : it.type === "pin" ? it.fx.photos.map((p) => p.id) : []; { const ti = inner.indexOf('<div class="tstop'); if (ti >= 0) inner = inner.slice(0, ti) + '<div class="swrow tsw">' + inner.slice(ti) + (it.type === "plan" ? `<div class="swacts"><button type="button" class="sw-edit" data-swplan>Edit plan</button></div>` : `<div class="swacts"><button type="button" class="sw-edit" data-swtime>Change time</button><button type="button" class="sw-del" data-swskip>Skip</button></div>`) + '</div>'; }
       return `<div class="tslot${it.type === "plan" ? " still" : ""}" data-start="${it.start}" data-end="${it.end}" data-lat="${ll ? ll.lat : ""}" data-lng="${ll ? ll.lng : ""}" data-ids="${esc(ids.join(","))}"${it.type === "pin" ? ` data-pin="${esc(it.fx.pin.id)}"` : ""}${it.type === "plan" ? ` data-plan="${esc(it.fx.p.id + "|" + it.fx.pl.id)}"` : ""}>${inner}</div>`; };
     const camHtml = (photos) => photos.filter((p) => p.cam_setup).map((p) => { const c = p.cam_setup, sm = camSummary(c), left = (c.df || []).filter((d) => !d.done).map((d) => d.t); return `<div class="tcam">📷 ${esc(sm.join(" · ") || "Camera setup")}${left.length ? `<br><span class="tdf">Don't forget: ${esc(left.join(" · "))}</span>` : ""}</div>`; }).join("");
     const stopHtml = (it) => {
@@ -2776,7 +2825,8 @@ footer { color: var(--muted); font-size: 12.5px; display: flex; justify-content:
     };
     for (const [date, parts] of [...days.entries()].sort((a, b) => a[0].localeCompare(b[0]))) {
       const s0 = parts.find((x) => x.s); const sunLine = s0 && cityCentre(c.id) && s0.s.rise[0] ? `Sunrise ${T(s0.s.rise[0])} · sunset ${T(s0.s.rise[1])}` : "";
-      h += `<div class="tday" data-date="${date}"><h3>${esc(tripDay(date))}${sunLine ? `<small>${esc(sunLine)}</small>` : ""}</h3>`;
+      const wxDay = (() => { if (!s0 || !s0.s.rise[0]) return ""; const a = wxAt(WX, +s0.s.rise[0]), b = wxAt(WX, +s0.s.rise[1]); if (!a && !b) return ""; const one = (w, k, lab) => { if (!w) return ""; const x = wxHint(w, k); return `${lab} ${x.i} ${x.sh}`; }; return [one(a, "sunrise", "Sky at sunrise"), one(b, "sunset", "sunset")].filter(Boolean).join(" · "); })();
+      h += `<div class="tday" data-date="${date}"><h3>${esc(tripDay(date))}${sunLine ? `<small>${esc(sunLine)}</small>` : ""}${wxDay ? `<small class="wxday">${esc(wxDay)}</small>` : ""}</h3>`;
       for (const part of parts) {
         if (part.extra) { const it = { type: part.extra.kind, fx: part.extra, start: part.extra.t, end: part.extra.end, tr: null }; h += slot(it, stopHtml(it).replace("· your plan", "· your plan (outside your free times)").replace("· arrive · shot", "· outside your free times · arrive · shot").replace("· your time", "· your time (outside your free times)")); continue; }
         h += `<div class="tl tfree" data-a="${part.w.a}" style="color:var(--muted);font-size:13px">Free ${T(part.w.a)} – ${T(part.w.b)}</div>`; prevName = null;
@@ -2789,6 +2839,7 @@ footer { color: var(--muted); font-size: 12.5px; display: flex; justify-content:
     if (R.noLoc.length) h += `<div class="sec"><h4>No location yet (${R.noLoc.length})</h4><div class="note">Add a location to these photos and they'll be planned too.</div>${R.noLoc.map((p) => `<div class="tmiss"><img alt="" src="${blobUrl(p.thumbId)}" data-id="${esc(p.id)}"><div>${esc(p.spot || "Unnamed photo")}</div></div>`).join("")}</div>`;
     if (R.shotPs.length) h += `<div class="sec shotsec"><h4>Shot ✓ (${R.shotPs.length})</h4>${R.shotPs.map((p) => `<div class="tmiss done"><button type="button" class="tick on" data-unshot="${esc(p.id)}" aria-label="Not shot yet"></button><img alt="" src="${blobUrl(p.thumbId)}" data-id="${esc(p.id)}"><div>${esc(p.spot || "Unnamed photo")}</div></div>`).join("")}</div>`;
     if (R.skipped.length) h += `<div class="sec"><h4>Skipped (${R.skipped.length})</h4>${R.skipped.map((p) => `<div class="tmiss"><img alt="" src="${blobUrl(p.thumbId)}" data-id="${esc(p.id)}"><div>${esc(p.spot || "Unnamed photo")}</div><button class="btn sm" type="button" data-unskip="${esc(p.id)}">Put back</button></div>`).join("")}</div>`;
+    h += `<div class="note">${WX ? `Weather: forecast from Open-Meteo, updated ${esc(T(WX.at))}${Date.now() - WX.at > 6 * 3600e3 ? " (no internet since, so it may be out of date)" : ""}. Clouds aren't bad: high and middle clouds with a clear horizon often light up at sunrise and sunset; thick low cloud can block the sun or moon. Forecasts reach about 2 weeks ahead.` : "Weather shows here once the phone has internet (forecasts reach about 2 weeks ahead)."}</div>`;
     h += `<div class="note">Times are local time in ${esc(c.name)}. Travel times are free estimates: short hops are walked, longer ones driven (tap any travel line to change it), not live traffic: tap Directions for Google Maps' real time. Opening hours and crowd tips aren't checked. ${TRIP_SHOOT} minutes is allowed at each spot.</div>`;
     $("tripOut").innerHTML = h;
     // Free times: one row (like a Settings row); the editor opens under it. Open by itself until there's a free time.
