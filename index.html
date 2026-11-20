@@ -354,7 +354,9 @@ body.selecting { padding-bottom: 120px; }
 .tstop .moonl { color: var(--fg); }
 .tstop .wxl { color: var(--fg); display: flex; flex-direction: column; gap: 2px; } .tstop .wxl small { color: var(--muted); font-size: 13px; }
 .tstop:not(.open) > .wxl { display: none; }
-.tday h3 small.wxday { display: block; margin-top: 2px; } 
+.tday h3 small.wxday { display: block; margin-top: 2px; }
+.tday .daymap { display: block; font-size: 15px; color: var(--muted); margin: -2px 0 8px; text-decoration: none; } .tday a.daymap, .tday .daymap a { color: var(--accent, #0a84ff); text-decoration: none; } .tday .daymap a { display: inline-block; padding: 6px 0; }
+#tripOut.dragmode .daymap { display: none; } 
 .tstop .tedit .te2, .tstop.open .tedit .te1 { display: none; } .tstop.open .tedit .te2 { display: inline; font-weight: 600; }
 .tstop:not(.open) .tedit { top: 50%; transform: translateY(-50%); }
 .tstop { padding-left: 58px !important; }
@@ -2830,7 +2832,17 @@ footer { color: var(--muted); font-size: 12.5px; display: flex; justify-content:
     for (const [date, parts] of [...days.entries()].sort((a, b) => a[0].localeCompare(b[0]))) {
       const s0 = parts.find((x) => x.s); const sunLine = s0 && cityCentre(c.id) && s0.s.rise[0] ? `Sunrise ${T(s0.s.rise[0])} · sunset ${T(s0.s.rise[1])}` : "";
       const wxDay = (() => { if (!s0 || !s0.s.rise[0]) return ""; const a = wxAt(WX, +s0.s.rise[0]), b = wxAt(WX, +s0.s.rise[1]); if (!a && !b) return ""; const one = (w, k, lab) => { if (!w) return ""; const x = wxHint(w, k); return `${lab} ${x.i} ${x.sh}`; }; return [one(a, "sunrise", "Sky at sunrise"), one(b, "sunset", "sunset")].filter(Boolean).join(" · "); })();
-      h += `<div class="tday" data-date="${date}"><h3>${esc(tripDay(date))}${sunLine ? `<small>${esc(sunLine)}</small>` : ""}${wxDay ? `<small class="wxday">${esc(wxDay)}</small>` : ""}</h3>`;
+      // The day's stops, in plan order, as one Google Maps route (named places; Google allows about 9 stops in between, so long days come in parts)
+      const dayMap = (() => {
+        const its = []; for (const part of parts) { if (part.extra) its.push({ t: part.extra.t, n: itemName({ type: part.extra.kind, fx: part.extra }) }); else for (const it of part.items) its.push({ t: it.start, n: itemName(it) }); }
+        const names = []; for (const x of its.sort((a, b) => a.t - b.t)) if (x.n && x.n !== names[names.length - 1]) names.push(x.n);
+        if (names.length < 2) return "";
+        const q = (n) => encodeURIComponent(n + ", " + c.name), url = (ns) => `https://www.google.com/maps/dir/?api=1&origin=${q(ns[0])}&destination=${q(ns[ns.length - 1])}${ns.length > 2 ? `&waypoints=${ns.slice(1, -1).map(q).join("%7C")}` : ""}`;
+        const PER = 10; if (names.length <= PER) return `<a class="daymap" href="${esc(url(names))}" target="_blank" rel="noopener">See day in Google Maps ›</a>`;
+        const links = []; for (let i = 0; i < names.length - 1; i += PER - 1) { const ns = names.slice(i, i + PER); links.push(`<a href="${esc(url(ns))}" target="_blank" rel="noopener">stops ${i + 1}–${i + ns.length}</a>`); }
+        return `<div class="daymap">See day in Google Maps: ${links.join(" · ")}</div>`;
+      })();
+      h += `<div class="tday" data-date="${date}"><h3>${esc(tripDay(date))}${sunLine ? `<small>${esc(sunLine)}</small>` : ""}${wxDay ? `<small class="wxday">${esc(wxDay)}</small>` : ""}</h3>${dayMap}`;
       for (const part of parts) {
         if (part.extra) { const it = { type: part.extra.kind, fx: part.extra, start: part.extra.t, end: part.extra.end, tr: null }; h += slot(it, stopHtml(it).replace("· your plan", "· your plan (outside your free times)").replace("· arrive · shot", "· outside your free times · arrive · shot").replace("· your time", "· your time (outside your free times)")); continue; }
         h += `<div class="tl tfree" data-a="${part.w.a}" style="color:var(--muted);font-size:13px">Free ${T(part.w.a)} – ${T(part.w.b)}</div>`; prevName = null;
