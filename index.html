@@ -347,6 +347,7 @@ body.selecting { padding-bottom: 120px; }
 .tstop.open .tn, .tstop.open .more { padding-right: 40px; }
 .tedit { position: absolute; top: 0; right: 44px; height: 48px; padding: 0 6px; background: none; border: 0; color: var(--accent); font: inherit; font-size: 16px; cursor: pointer; }
 .tstop:not(.open) .mh, .tstop:not(.open) .clashl { display: none; }
+.tstop .moonl { color: var(--fg); } 
 .tstop .tedit .te2, .tstop.open .tedit .te1 { display: none; } .tstop.open .tedit .te2 { display: inline; font-weight: 600; }
 .tstop:not(.open) .tedit { top: 50%; transform: translateY(-50%); }
 .tstop { padding-left: 58px !important; }
@@ -709,6 +710,52 @@ footer { color: var(--muted); font-size: 12.5px; display: flex; justify-content:
       return (Math.atan2(Math.sin(H), Math.cos(H) * Math.sin(phi) - Math.tan(dec) * Math.cos(phi)) / R + 180 + 360) % 360;
     }
     return { times, azimuth };
+  })();
+  // Moon: where it is (direction and height), when it rises and sets, and how much of it is lit. Worked out on the
+  // phone (standard formulas, good to a minute or two and about a degree). Exact alignments stay in PhotoPills.
+  const Moon = (() => {
+    const R = Math.PI / 180, DAY = 864e5, J1970 = 2440588, J2000 = 2451545, E = R * 23.4397;
+    const toDays = (t) => t / DAY - 0.5 + J1970 - J2000;
+    const rA = (l, b) => Math.atan2(Math.sin(l) * Math.cos(E) - Math.tan(b) * Math.sin(E), Math.cos(l));
+    const dE = (l, b) => Math.asin(Math.sin(b) * Math.cos(E) + Math.cos(b) * Math.sin(E) * Math.sin(l));
+    const coords = (d) => { const L = R * (218.316 + 13.176396 * d), M = R * (134.963 + 13.064993 * d), F = R * (93.272 + 13.22935 * d), D = R * (297.850 + 12.190749 * d), S = R * (357.529 + 0.98560028 * d);
+      const l = L + R * (6.289 * Math.sin(M) + 1.274 * Math.sin(2 * D - M) + 0.658 * Math.sin(2 * D) + 0.214 * Math.sin(2 * M) - 0.186 * Math.sin(S) - 0.114 * Math.sin(2 * F));
+      const b = R * (5.128 * Math.sin(F) + 0.281 * Math.sin(M + F) + 0.278 * Math.sin(M - F) + 0.173 * Math.sin(2 * D - F));
+      return { ra: rA(l, b), dec: dE(l, b), dist: 385001 - 20905 * Math.cos(M) - 3699 * Math.cos(2 * D - M) - 2956 * Math.cos(2 * D) }; };
+    const sunC = (d) => { const M = R * (357.5291 + 0.98560028 * d), C = R * (1.9148 * Math.sin(M) + 0.02 * Math.sin(2 * M) + 0.0003 * Math.sin(3 * M)), L = M + C + R * 102.9372 + Math.PI; return { ra: rA(L, 0), dec: dE(L, 0) }; };
+    const refr = (h) => { if (h < 0) h = 0; return 0.0002967 / Math.tan(h + 0.00312536 / (h + 0.08901179)); };
+    // Direction (degrees from north) and height (degrees above the horizon) at time t (ms)
+    function position(t, lat, lng) {
+      const lw = R * -lng, phi = R * lat, d = toDays(+t), c = coords(d), H = R * (280.16 + 360.9856235 * d) - lw - c.ra;
+      let h = Math.asin(Math.sin(phi) * Math.sin(c.dec) + Math.cos(phi) * Math.cos(c.dec) * Math.cos(H)); h -= Math.asin((6378.14 / c.dist) * Math.cos(h)); h += refr(h); // seen from the ground (parallax), then bent by the air
+      const az = Math.atan2(Math.sin(H), Math.cos(H) * Math.sin(phi) - Math.tan(c.dec) * Math.cos(phi));
+      return { az: (az / R + 180 + 360) % 360, alt: h / R };
+    }
+    // How much is lit (0–1), and where in its cycle it is (0 new, 0.5 full)
+    function illum(t) {
+      const d = toDays(+t), s = sunC(d), m = coords(d), sd = 149598000;
+      const phi = Math.acos(Math.sin(s.dec) * Math.sin(m.dec) + Math.cos(s.dec) * Math.cos(m.dec) * Math.cos(s.ra - m.ra));
+      const inc = Math.atan2(sd * Math.sin(phi), m.dist - sd * Math.cos(phi));
+      const ang = Math.atan2(Math.cos(s.dec) * Math.sin(s.ra - m.ra), Math.sin(s.dec) * Math.cos(m.dec) - Math.cos(s.dec) * Math.sin(m.dec) * Math.cos(s.ra - m.ra));
+      return { fraction: (1 + Math.cos(inc)) / 2, phase: 0.5 + 0.5 * inc * (ang < 0 ? -1 : 1) / Math.PI };
+    }
+    const phaseName = (il) => { const f = il.fraction, wax = il.phase < 0.5; return f < 0.03 ? "New moon" : f > 0.97 ? "Full moon" : Math.abs(f - 0.5) < 0.05 ? (wax ? "First quarter" : "Last quarter") : (wax ? "Waxing " : "Waning ") + (f < 0.5 ? "crescent" : "gibbous"); };
+    // Moonrise and moonset in the 24 hours from t0 (ms, the start of the local day)
+    function times(t0, lat, lng) {
+      const hc = -0.26, H = (hr) => position(t0 + hr * 3600e3, lat, lng).alt - hc;
+      let h0 = H(0), rise = null, set = null;
+      for (let i = 1; i <= 24; i += 2) {
+        const h1 = H(i), h2 = H(i + 1), a = (h0 + h2) / 2 - h1, b = (h2 - h0) / 2, xe = -b / (2 * a), ye = (a * xe + b) * xe + h1, dd = b * b - 4 * a * h1;
+        let roots = 0, x1 = 0, x2 = 0;
+        if (dd >= 0) { const dx = Math.sqrt(dd) / (Math.abs(a) * 2); x1 = xe - dx; x2 = xe + dx; if (Math.abs(x1) <= 1) roots++; if (Math.abs(x2) <= 1) roots++; if (x1 < -1) x1 = x2; }
+        if (roots === 1) { if (h0 < 0 && rise === null) rise = i + x1; else if (h0 >= 0 && set === null) set = i + x1; }
+        else if (roots === 2) { if (rise === null) rise = i + (ye < 0 ? x2 : x1); if (set === null) set = i + (ye < 0 ? x1 : x2); }
+        if (rise !== null && set !== null) break;
+        h0 = h2;
+      }
+      return { rise: rise === null ? null : t0 + rise * 3600e3, set: set === null ? null : t0 + set * 3600e3 };
+    }
+    return { position, illum, times, phaseName };
   })();
   const validTz = (t) => { if (typeof t !== "string" || !t.includes("/")) return ""; try { new Intl.DateTimeFormat("en", { timeZone: t }); return t.slice(0, 60); } catch { return ""; } };
   // Countries with one time zone (or one per region below). Claude fills in the rest when it finds a place.
@@ -1559,8 +1606,12 @@ footer { color: var(--muted); font-size: 12.5px; display: flex; justify-content:
         <dt>Golden hour</dt><dd>${span(s.gold[1], s.deep[1])}</dd>
         <dt>Sunset</dt><dd>${f(s.rise[1])}</dd>${side(s.rise[1])}
         <dt>Blue hour</dt><dd>${span(s.deep[1], s.blue[1])}</dd>
+        ${(() => { const md = moonDay(($("sunDate").value || ymdIn(tz)), ll, tz, fmt); return `<div class="hd">Moon</div>
+        <dt>Phase</dt><dd style="font-family:var(--font-body)">${esc(md.phase)}</dd>
+        <dt>Moonrise</dt><dd>${md.rise ? esc(md.rise) : "None this day"}</dd>
+        <dt>Moonset</dt><dd>${md.set ? esc(md.set) : "None this day"}</dd>`; })()}
       </dl>
-      <div class="note" style="margin-top:6px">${tz ? `Local time in ${esc(cname)}.` : `Shown in your phone's time: the time zone for ${esc(cname)} isn't known yet (Find places fills it in).`} Worked out from the spot's location${h !== null ? " and the way the camera faces" : ""}.${roughNote}</div>`
+      <div class="note" style="margin-top:6px">${tz ? `Local time in ${esc(cname)}.` : `Shown in your phone's time: the time zone for ${esc(cname)} isn't known yet (Find places fills it in).`} Worked out from the spot's location${h !== null ? " and the way the camera faces" : ""}. Moon times are within a few minutes; use PhotoPills for exact alignments.${roughNote}</div>`
       : `<div class="note">The sun doesn't rise or set here on this day.</div>`;
   }
   $("sunDate").addEventListener("change", () => { const p = lbPhoto(); if (p) renderSun(p); });
@@ -2063,6 +2114,21 @@ footer { color: var(--muted); font-size: 12.5px; display: flex; justify-content:
     if (!tz) return new Date(+m[1], +m[2] - 1, +m[3], m[4] ? +m[4] : 12, m[5] ? +m[5] : 0).getTime();
     let t = guess - tzOffsetMs(tz, guess); t = guess - tzOffsetMs(tz, t); return t;
   }
+  // "11° up, WNW (288°) · 96% lit" for a moment; "below the horizon" when it isn't up
+  function moonAt(t, ll) {
+    const q = Moon.position(t, ll.lat, ll.lng), il = Moon.illum(t), lit = Math.round(il.fraction * 100);
+    return q.alt > -0.5 ? `${Math.max(0, Math.round(q.alt))}° up, ${compassOf(q.az)} (${Math.round(q.az)}°) · ${lit}% lit` : `below the horizon · ${lit}% lit`;
+  }
+  // Moonrise / moonset on the day of `date` (YYYY-MM-DD) in the place's time zone
+  function moonDay(date, ll, tz, fmt) {
+    const t0 = planMoment(date + "T00:00", tz), mt = Moon.times(t0, ll.lat, ll.lng), il = Moon.illum(t0 + 12 * 3600e3);
+    const one = (t) => t ? `${fmt.format(t)} · ${compassOf(Moon.position(t, ll.lat, ll.lng).az)} (${Math.round(Moon.position(t, ll.lat, ll.lng).az)}°)` : "";
+    return { rise: one(mt.rise), set: one(mt.set), riseT: mt.rise, setT: mt.set, phase: `${Moon.phaseName(il)}, ${Math.round(il.fraction * 100)}% lit` };
+  }
+  const isMoonPhoto = (p) => lightsOf(p).includes("moon");
+  const hm12 = (hhmm) => { const m = /^(\d{2}):(\d{2})/.exec(hhmm || ""); return m ? new Date(Date.UTC(2000, 0, 1, +m[1], +m[2])).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit", hour12: !use24, timeZone: "UTC" }) : ""; };
+  // A plan's shot time as a moment (falls on the same day as Arrive by, or the next day if earlier)
+  function planShotMoment(pl, tz) { if (!pl.shot || !pl.at) return null; const day = pl.at.slice(0, 10); let t = planMoment(day + "T" + pl.shot, tz); const a = planMoment(pl.at, tz); if (t !== null && a !== null && /T\d/.test(pl.at) && t < a) t += 24 * 3600e3; return t; }
   function planWhenText(pl, tz) {
     const m = /^(\d{4})-(\d{2})-(\d{2})(?:T(\d{2}):(\d{2}))?/.exec(pl.at || ""); if (!m) return { main: "No date yet", rel: "", cls: "" };
     const d = new Date(Date.UTC(+m[1], +m[2] - 1, +m[3], 12));
@@ -2076,7 +2142,8 @@ footer { color: var(--muted); font-size: 12.5px; display: flex; justify-content:
       else if (diff < 24 * H) { const h = Math.floor(diff / H), mi = Math.round((diff % H) / 60e3); rel = `In ${h ? h + " h " : ""}${mi} min`; cls = "soon"; }
       else { const dd = Math.round(diff / (24 * H)); rel = `In ${dd} day${dd === 1 ? "" : "s"}`; }
     }
-    return { main: day + (time ? " · " + time : ""), rel, cls };
+    const shot = pl.shot ? hm12(pl.shot) : "";
+    return { main: day + (time ? ` · ${shot ? "arrive " : ""}${time}` : "") + (shot ? ` · shot ${shot}` : ""), rel, cls };
   }
   function planFromHref(pl, cname) {
     if (!pl.from) return "";
@@ -2088,7 +2155,12 @@ footer { color: var(--muted); font-size: 12.5px; display: flex; justify-content:
     const s = Sun.times(Date.UTC(+m[1], +m[2] - 1, +m[3], 12) - (ll.lng / 15) * 3600e3, ll.lat, ll.lng); if (!s.rise[0]) return "";
     let fmt; try { fmt = new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit", hour12: !use24, timeZone: tz || undefined }); } catch { fmt = new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit", hour12: !use24 }); }
     const f = (x) => x ? fmt.format(x) : "—";
-    return `That day: morning blue hour ${f(s.blue[0])}–${f(s.deep[0])}, sunrise ${f(s.rise[0])}, sunset ${f(s.rise[1])}, evening blue hour ${f(s.deep[1])}–${f(s.blue[1])}.`;
+    let moon = "";
+    if (isMoonPhoto(p) || /moon/i.test((pl.aim || "") + (pl.notes || ""))) {
+      const md = moonDay(m[0], ll, tz, fmt), ts = planShotMoment(pl, tz) || (/T\d/.test(pl.at) ? planMoment(pl.at, tz) : null);
+      moon = ` Moon: ${md.phase}${md.rise ? `, rises ${md.rise}` : ""}${md.set ? `, sets ${md.set}` : ""}.${ts ? ` At ${fmt.format(ts)} it's ${moonAt(ts, ll)}.` : ""}`;
+    }
+    return `That day: morning blue hour ${f(s.blue[0])}–${f(s.deep[0])}, sunrise ${f(s.rise[0])}, sunset ${f(s.rise[1])}, evening blue hour ${f(s.deep[1])}–${f(s.blue[1])}.${moon}`;
   }
   function renderPlans(p, full) {
     const box = $("planList"); if (!full && box.contains(document.activeElement)) return;
@@ -2098,7 +2170,8 @@ footer { color: var(--muted); font-size: 12.5px; display: flex; justify-content:
     const form = (pl) => `<form class="planform plan" id="planForm">
         <label>Shooting from<input id="planFrom" type="text" enterkeyhint="next" value="${esc(pl.from ? (pl.from.url || pl.from.name || "") : "")}" placeholder="Paste a Google Maps link, or type a place" autocomplete="off"></label>
         <label>Aiming at (optional)<input id="planAim" type="text" enterkeyhint="next" value="${esc(pl.aim || "")}" placeholder="e.g. Marina Bay Sands with the moon" autocomplete="off"></label>
-        <div class="two"><label>Date<input id="planDate" type="date" value="${esc((pl.at || "").slice(0, 10))}"></label><label>Time<span class="tpick">${tpHtml("planTime", (pl.at || "").slice(11, 16), true)}</span></label></div>
+        <label>Date<input id="planDate" type="date" value="${esc((pl.at || "").slice(0, 10))}"></label>
+        <div class="two"><label>Arrive by<span class="tpick">${tpHtml("planTime", (pl.at || "").slice(11, 16), true)}</span></label><label>Shot time (optional)<span class="tpick">${tpHtml("planShot", pl.shot || "", true)}</span></label></div>
         <label>Notes<textarea id="planNotes" rows="2" placeholder="e.g. moon 2° above the deck; camera settings go in Camera setup below">${esc(pl.notes || "")}</textarea></label>
         <div class="note">Times are ${tz ? `local time in ${esc(cname || "this city")}` : "in your phone's time"}.</div>
         <div class="planacts"><button class="btn primary" type="submit">Save plan</button><button class="btn ghost" type="button" id="planCancel">Cancel</button></div>
@@ -2131,7 +2204,8 @@ footer { color: var(--muted); font-size: 12.5px; display: flex; justify-content:
       if (url && MAPS_URL.test(url)) { const r = parseLocation(raw); from = { url, name: (r && r.name) || null }; if (r && !r.error) from.ll = { lat: r.lat, lng: r.lng }; }
       else if (raw) { const r = parseLocation(raw); from = r && !r.error && !r.name ? { name: raw, ll: { lat: r.lat, lng: r.lng } } : { name: raw }; }
       const date = $("planDate").value, time = tpGet("planTime");
-      const pl = { id: (editing && editing.id) || newId(), from, aim: $("planAim").value.trim().slice(0, 200) || null, at: date ? date + (time ? "T" + time : "") : null, notes: $("planNotes").value.trim().slice(0, 2000) || null };
+      const shot = tpGet("planShot") || null;
+      const pl = { id: (editing && editing.id) || newId(), from, aim: $("planAim").value.trim().slice(0, 200) || null, at: date ? date + (time ? "T" + time : shot ? "T" + shot : "") : null, shot, notes: $("planNotes").value.trim().slice(0, 2000) || null };
       if (!pl.from && !pl.at && !pl.aim && !pl.notes) { planEdit = null; renderPlans(p, true); return; }
       const cur = lbPhoto() || p; const list = (cur.plans || []).filter((x) => x.id !== pl.id); list.push(pl);
       planEdit = null; document.activeElement && document.activeElement.blur();
@@ -2215,10 +2289,11 @@ footer { color: var(--muted); font-size: 12.5px; display: flex; justify-content:
   function tpGet(id) { const H = $(id + "H").value; if (!H) return ""; let h = +H; if ($(id + "A")) { h = h % 12; if ($(id + "A").value === "PM") h += 12; } return `${String(h).padStart(2, "0")}:${String(+$(id + "M").value).padStart(2, "0")}`; }
   function tpMount(holder, id, hhmm, optional) { $(holder).innerHTML = tpHtml(id, hhmm, optional); }
   function set24(on) {
-    const keep = { f: tpGet("tripFrom"), t: tpGet("tripTo"), p: $("planTimeH") ? tpGet("planTime") : null };
+    const keep = { f: tpGet("tripFrom"), t: tpGet("tripTo"), p: $("planTimeH") ? tpGet("planTime") : null, ps: $("planShotH") ? tpGet("planShot") : null };
     use24 = on; lsSet("shotlist.24h", on ? "1" : "0"); $("t24Home").checked = on; $("t24Trip").checked = on;
     tpMount("tripFromPick", "tripFrom", keep.f); tpMount("tripToPick", "tripTo", keep.t);
     if (keep.p !== null) { const holder = $("planTimeH").parentElement; holder.innerHTML = tpHtml("planTime", keep.p, true); }
+    if (keep.ps !== null) { const holder = $("planShotH").parentElement; holder.innerHTML = tpHtml("planShot", keep.ps, true); }
     render();
   }
   $("t24Home").onchange = (e) => set24(e.target.checked); $("t24Trip").onchange = (e) => set24(e.target.checked);
@@ -2326,7 +2401,7 @@ footer { color: var(--muted); font-size: 12.5px; display: flex; justify-content:
     const sunFor = (date) => Sun.times(Date.UTC(+date.slice(0, 4), +date.slice(5, 7) - 1, +date.slice(8, 10), 12) - ((centre || { lng: 0 }).lng / 15) * 3600e3, (centre || { lat: 0 }).lat, (centre || { lng: 0 }).lng);
     // Fixed: your own plans and the times you picked for a stop
     const fixed = [];
-    for (const p of photos) for (const pl of p.plans || []) { const t = planMoment(pl.at, tz); if (t === null || !/T\d/.test(pl.at || "")) continue; fixed.push({ kind: "plan", t, end: t + TRIP_PLAN * MIN, p, pl, ll: (pl.from && pl.from.ll) || p.cam || p.subj || centre, href: planFromHref(pl, c.name) || gmPlace(placeLabel(p) || p.spot, c.name), day: pl.at.slice(0, 10) }); }
+    for (const p of photos) for (const pl of p.plans || []) { const t = planMoment(pl.at, tz); if (t === null || !/T\d/.test(pl.at || "")) continue; const tShot = planShotMoment(pl, tz); fixed.push({ kind: "plan", tShot, t, end: Math.max(t + TRIP_PLAN * MIN, tShot ? tShot + 15 * MIN : 0), p, pl, ll: (pl.from && pl.from.ll) || p.cam || p.subj || centre, href: planFromHref(pl, c.name) || gmPlace(placeLabel(p) || p.spot, c.name), day: pl.at.slice(0, 10) }); }
     for (const pin of pins) {
       const ps = (pin.photos || []).map((id) => photos.find((x) => x.id === id)).filter(Boolean); if (!ps.length) continue;
       // A time you chose belongs to the PLACE, not just the photos that were in the stop when you moved it.
@@ -2692,16 +2767,18 @@ footer { color: var(--muted); font-size: 12.5px; display: flex; justify-content:
       return `<div class="tslot${it.type === "plan" ? " still" : ""}" data-start="${it.start}" data-end="${it.end}" data-lat="${ll ? ll.lat : ""}" data-lng="${ll ? ll.lng : ""}" data-ids="${esc(ids.join(","))}"${it.type === "pin" ? ` data-pin="${esc(it.fx.pin.id)}"` : ""}${it.type === "plan" ? ` data-plan="${esc(it.fx.p.id + "|" + it.fx.pl.id)}"` : ""}>${inner}</div>`; };
     const camHtml = (photos) => photos.filter((p) => p.cam_setup).map((p) => { const c = p.cam_setup, sm = camSummary(c), left = (c.df || []).filter((d) => !d.done).map((d) => d.t); return `<div class="tcam">📷 ${esc(sm.join(" · ") || "Camera setup")}${left.length ? `<br><span class="tdf">Don't forget: ${esc(left.join(" · "))}</span>` : ""}</div>`; }).join("");
     const stopHtml = (it) => {
-      if (it.type === "plan") { const fx = it.fx, from = fx.pl.from ? (fx.pl.from.name || "your pin") : ""; return `${legHtml(it)}<div class="tstop fixed"><div class="tt">📌 ${T(it.start)} <small>· your plan</small>${GRIP}</div><div class="tn">${esc(fx.p.spot || "Your plan")}</div>${from ? `<div class="tl">From ${esc(from)}${fx.pl.aim ? " · aiming at " + esc(fx.pl.aim) : ""}</div>` : ""}${fx.pl.notes ? `<div class="tip">${esc(fx.pl.notes)}</div>` : ""}${camHtml([fx.p])}<div class="thumbs"><img alt="" src="${blobUrl(fx.p.thumbId)}" data-id="${esc(fx.p.id)}"></div><div class="acts"><a class="btn primary sm" href="${esc(fx.href)}" target="_blank" rel="noopener">Open in Google Maps</a><button class="btn sm" type="button" data-editplan="${esc(fx.p.id + "|" + fx.pl.id)}">Edit plan (time, place)</button></div></div>`; }
+      if (it.type === "plan") { const fx = it.fx, from = fx.pl.from ? (fx.pl.from.name || "your pin") : "", ts = fx.tShot;
+        const moonL = (isMoonPhoto(fx.p) || /moon/i.test((fx.pl.aim || "") + (fx.pl.notes || ""))) && fx.ll ? `<div class="tl moonl">🌕 Moon at ${T(ts || it.start)}: ${esc(moonAt(ts || it.start, fx.ll))}</div>` : "";
+        return `${legHtml(it)}<div class="tstop fixed"><div class="tt">📌 ${T(it.start)} <small>· ${ts ? `arrive · shot ${T(ts)}` : "your plan"}</small>${GRIP}</div><div class="tn">${esc(fx.p.spot || "Your plan")}</div>${from ? `<div class="tl">From ${esc(from)}${fx.pl.aim ? " · aiming at " + esc(fx.pl.aim) : ""}</div>` : ""}${moonL}${fx.pl.notes ? `<div class="tip">${esc(fx.pl.notes)}</div>` : ""}${camHtml([fx.p])}<div class="thumbs"><img alt="" src="${blobUrl(fx.p.thumbId)}" data-id="${esc(fx.p.id)}"></div><div class="acts"><a class="btn primary sm" href="${esc(fx.href)}" target="_blank" rel="noopener">Open in Google Maps</a><button class="btn sm" type="button" data-editplan="${esc(fx.p.id + "|" + fx.pl.id)}">Edit plan (time, place)</button></div></div>`; }
       if (it.type === "pin") { const fx = it.fx, n = fx.photos.length; return `${legHtml(it)}<div class="tstop fixed" data-pin="${esc(fx.pin.id)}"><div class="tt">${T(it.start)} <small>– ${T(it.end)} · your time</small>${GRIP}</div>${fx.warn ? `<div class="tl warn" style="color:var(--warn)">Outside ${esc(fx.warn.what)}: ${T(fx.warn.a)} – ${T(fx.warn.b)}.</div>` : ""}<div class="tn">${esc(fx.name)}${n > 1 ? ` <small style="color:var(--muted)">(${n} photos)</small>` : ""}</div>${fx.tip ? `<div class="tip">${esc(fx.tip)}</div>` : ""}${camHtml(fx.photos)}<div class="thumbs">${fx.photos.map((p) => `<img alt="" src="${blobUrl(p.thumbId)}" data-id="${esc(p.id)}">`).join("")}</div><div class="acts"><a class="btn primary sm" href="${esc(fx.href)}" target="_blank" rel="noopener">Open in Google Maps</a><button class="btn sm" type="button" data-retime="pin">Change day or time</button><button class="btn ghost sm" type="button" data-unpin="${esc(fx.pin.id)}">Let the app choose</button><button class="btn ghost sm" type="button" data-tedit>More…</button></div><div class="retime" hidden></div></div>`; }
       const st = it.st, n = st.photos.length;
-      return `${legHtml(it)}<div class="tstop" data-key="${esc(st.key)}"><div class="tt">${T(it.start)} <small>– ${T(it.end)} · ${(() => { const L = (k) => (LIGHTS.find(([x]) => x === k) || [, "Any time"])[1]; const k1 = it.kind, k2 = it.kind2; const broad = (k) => k === "anytime" || k === "day"; if (!k2) return esc(L(k1)); if (k1 === "anytime") return esc(L(k2)); if (broad(k2)) return esc(L(k1)); return esc(L(k1) + " → " + L(k2)); })()}${(() => { const n = (visitNo.get(st.key) || 0) + 1; visitNo.set(st.key, n); return n > 1 ? ` · ${n === 2 ? "2nd" : n === 3 ? "3rd" : n + "th"} visit` : ""; })()}${st.star ? ' · ★<span class="mh"> Must-have</span>' : ""}</small>${GRIP}</div><div class="tn">${esc(st.name)}${n > 1 ? ` <small style="color:var(--muted)">(${n} photos)</small>` : ""}</div>${st.hint ? `<div class="tl">Timed to the tip: ${esc(st.hint)}</div>` : ""}${st.weekNote ? `<div class="tl warn" style="color:var(--warn)">${esc(st.weekNote)}</div>` : ""}${st.tip ? `<div class="tip">${esc(st.tip)}</div>` : ""}${st.rough ? `<div class="tl">No exact pin for this one, so travel time is a guess.</div>` : ""}${camHtml(st.photos)}<div class="thumbs">${st.photos.map((p) => `<img alt="" src="${blobUrl(p.thumbId)}" data-id="${esc(p.id)}">`).join("")}</div><div class="acts"><a class="btn primary sm" href="${esc(st.href)}" target="_blank" rel="noopener">Open in Google Maps</a><button class="btn sm" type="button" data-retime="stop" data-ids="${esc(st.photos.map((p) => p.id).join(","))}" data-date="${esc(it.date)}" data-at="${it.start}">Change day or time</button><button class="btn ghost sm" type="button" data-skip="${esc(st.key)}" data-ids="${esc(st.photos.map((p) => p.id).join(","))}">Skip</button><button class="btn ghost sm" type="button" data-tedit>More…</button></div><div class="retime" hidden></div></div>`;
+      return `${legHtml(it)}<div class="tstop" data-key="${esc(st.key)}"><div class="tt">${T(it.start)} <small>– ${T(it.end)} · ${(() => { const L = (k) => (LIGHTS.find(([x]) => x === k) || [, "Any time"])[1]; const k1 = it.kind, k2 = it.kind2; const broad = (k) => k === "anytime" || k === "day"; if (!k2) return esc(L(k1)); if (k1 === "anytime") return esc(L(k2)); if (broad(k2)) return esc(L(k1)); return esc(L(k1) + " → " + L(k2)); })()}${(() => { const n = (visitNo.get(st.key) || 0) + 1; visitNo.set(st.key, n); return n > 1 ? ` · ${n === 2 ? "2nd" : n === 3 ? "3rd" : n + "th"} visit` : ""; })()}${st.star ? ' · ★<span class="mh"> Must-have</span>' : ""}</small>${GRIP}</div><div class="tn">${esc(st.name)}${n > 1 ? ` <small style="color:var(--muted)">(${n} photos)</small>` : ""}</div>${st.photos.some(isMoonPhoto) && st.ll ? `<div class="tl moonl">🌕 Moon at ${T(it.start)}: ${esc(moonAt(it.start, st.ll))}</div>` : ""}${st.hint ? `<div class="tl">Timed to the tip: ${esc(st.hint)}</div>` : ""}${st.weekNote ? `<div class="tl warn" style="color:var(--warn)">${esc(st.weekNote)}</div>` : ""}${st.tip ? `<div class="tip">${esc(st.tip)}</div>` : ""}${st.rough ? `<div class="tl">No exact pin for this one, so travel time is a guess.</div>` : ""}${camHtml(st.photos)}<div class="thumbs">${st.photos.map((p) => `<img alt="" src="${blobUrl(p.thumbId)}" data-id="${esc(p.id)}">`).join("")}</div><div class="acts"><a class="btn primary sm" href="${esc(st.href)}" target="_blank" rel="noopener">Open in Google Maps</a><button class="btn sm" type="button" data-retime="stop" data-ids="${esc(st.photos.map((p) => p.id).join(","))}" data-date="${esc(it.date)}" data-at="${it.start}">Change day or time</button><button class="btn ghost sm" type="button" data-skip="${esc(st.key)}" data-ids="${esc(st.photos.map((p) => p.id).join(","))}">Skip</button><button class="btn ghost sm" type="button" data-tedit>More…</button></div><div class="retime" hidden></div></div>`;
     };
     for (const [date, parts] of [...days.entries()].sort((a, b) => a[0].localeCompare(b[0]))) {
       const s0 = parts.find((x) => x.s); const sunLine = s0 && cityCentre(c.id) && s0.s.rise[0] ? `Sunrise ${T(s0.s.rise[0])} · sunset ${T(s0.s.rise[1])}` : "";
       h += `<div class="tday" data-date="${date}"><h3>${esc(tripDay(date))}${sunLine ? `<small>${esc(sunLine)}</small>` : ""}</h3>`;
       for (const part of parts) {
-        if (part.extra) { const it = { type: part.extra.kind, fx: part.extra, start: part.extra.t, end: part.extra.end, tr: null }; h += slot(it, stopHtml(it).replace("· your plan", "· your plan (outside your free times)").replace("· your time", "· your time (outside your free times)")); continue; }
+        if (part.extra) { const it = { type: part.extra.kind, fx: part.extra, start: part.extra.t, end: part.extra.end, tr: null }; h += slot(it, stopHtml(it).replace("· your plan", "· your plan (outside your free times)").replace("· arrive · shot", "· outside your free times · arrive · shot").replace("· your time", "· your time (outside your free times)")); continue; }
         h += `<div class="tl tfree" data-a="${part.w.a}" style="color:var(--muted);font-size:13px">Free ${T(part.w.a)} – ${T(part.w.b)}</div>`; prevName = null;
         { let pe = null; for (const it of part.items) { const need = pe === null ? null : pe + ((it.tr && it.tr.min) || 0) * MIN; it.clash = need !== null && it.start < need - 60e3 ? Math.round((need - it.start) / MIN) : 0; it.clashAt = need; pe = Math.max(pe || 0, it.end); } }
         h += part.items.length ? part.items.map((it) => slot(it, stopHtml(it))).join("") : `<div class="note">Nothing fits this time. Check the "Didn't fit" list below.</div>`;
