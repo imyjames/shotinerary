@@ -358,7 +358,11 @@ body.selecting { padding-bottom: 120px; }
 .dragghost .tip, .dragghost .tcam, .dragghost .thumbs, .dragghost .acts, .dragghost .tl, .dragghost .ttravel, .dragghost .retime { display: none; }
 .dragghost .tstop { padding: 8px 12px; gap: 2px; border-color: var(--accent); }
 .dragghost { position: fixed; z-index: 90; pointer-events: none; opacity: .95; transform: scale(1.02); box-shadow: 0 12px 30px rgba(0,0,0,.6); border-radius: 12px; }
-.dropph { border: 2px dashed var(--accent); border-radius: 12px; background: rgba(10,132,255,.08); max-height: 120px; }
+.dropph { border-radius: 12px; background: rgba(255,255,255,.05); max-height: 120px; }
+/* Like Reminders: nothing on the Shot plan is selectable text, and iPhone's own drag (which lifts selected text and
+   offers it as a "copy" with a green +) can never start here. Only the typing boxes keep normal text behaviour. */
+#trip, #trip * { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; -webkit-user-drag: none; -webkit-tap-highlight-color: transparent; }
+#trip input, #trip textarea, #trip select, #trip [contenteditable] { -webkit-user-select: text; user-select: text; -webkit-touch-callout: default; }
 .tstop .retime .tripadd { display: flex; flex-wrap: wrap; gap: 8px 10px; align-items: flex-end; }
 .tstop .retime .tripadd label { display: flex; flex-direction: column; gap: 4px; flex: 1 1 100%; }
 .tstop .retime .tripadd label select#rtDay { width: 100%; }
@@ -2435,6 +2439,11 @@ footer { color: var(--muted); font-size: 12.5px; display: flex; justify-content:
   // Press and drag a stop (by its ≡, or press and hold the card) to move it, on iPhone or with a mouse.
   // Dropping it after another stop gives it the time right after that stop (plus travel); the rest is planned around it.
   function hhmmIn(ms, tz) { try { const parts = Object.fromEntries(new Intl.DateTimeFormat("en-GB", { timeZone: tz || undefined, hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).formatToParts(new Date(ms)).map((x) => [x.type, x.value])); return `${parts.hour}:${parts.minute}`; } catch { return ""; } }
+  { const tr = $("trip"), typing = (t) => t && t.closest && t.closest("input, textarea, select, [contenteditable]");
+    tr.addEventListener("dragstart", (e) => { if (!typing(e.target)) e.preventDefault(); });
+    tr.addEventListener("selectstart", (e) => { if (!typing(e.target)) e.preventDefault(); });
+    tr.addEventListener("contextmenu", (e) => { if (!typing(e.target)) e.preventDefault(); }); }
+  const clearSel = () => { try { const a = document.activeElement; if (!(a && /^(INPUT|TEXTAREA)$/.test(a.tagName))) window.getSelection().removeAllRanges(); } catch {} };
   function tripDrag(c, R) {
     const out = $("tripOut"), scroller = $("trip");
     if (!out.__tmv) { out.__tmv = true; out.addEventListener("touchmove", (ev) => { if (out.classList.contains("dragmode") && ev.cancelable) ev.preventDefault(); }, { passive: false }); }
@@ -2442,7 +2451,7 @@ footer { color: var(--muted); font-size: 12.5px; display: flex; justify-content:
       const grip = sl.querySelector(".grip"); if (!grip) return;
       const begin = (e) => {
         // Like Reminders: while dragging, every stop shrinks to its time and name so the whole day fits on screen
-        out.classList.add("dragmode");
+        clearSel(); out.classList.add("dragmode");
         { const r0 = sl.getBoundingClientRect(); scroller.scrollTop += r0.top - (e.clientY - 18); }
         const r = sl.getBoundingClientRect(), dy = Math.min(e.clientY - r.top, r.height - 4);
         const ghost = sl.cloneNode(true); ghost.classList.add("dragghost"); ghost.style.width = r.width + "px"; ghost.style.left = r.left + "px"; ghost.style.top = r.top + "px"; document.body.appendChild(ghost);
@@ -2490,7 +2499,7 @@ footer { color: var(--muted); font-size: 12.5px; display: flex; justify-content:
       sl.addEventListener("touchstart", (e) => {
         if (e.touches.length > 1 || noHold(e.target)) return;
         const t0 = e.touches[0], x0 = t0.clientX, y0 = t0.clientY;
-        const lift = setTimeout(() => sl.classList.add("lifting"), 250);
+        const lift = setTimeout(() => { clearSel(); sl.classList.add("lifting"); }, 250);
         const timer = setTimeout(() => { cleanup(); begin({ type: "touchstart", pointerType: "touch", clientX: x0, clientY: y0 }); }, 450);
         const mv = (ev) => { const q = ev.touches[0]; if (q && Math.hypot(q.clientX - x0, q.clientY - y0) > 10) cleanup(); };
         const cleanup = () => { clearTimeout(timer); clearTimeout(lift); sl.classList.remove("lifting"); sl.removeEventListener("touchmove", mv); sl.removeEventListener("touchend", cleanup); sl.removeEventListener("touchcancel", cleanup); };
@@ -2762,10 +2771,13 @@ footer { color: var(--muted); font-size: 12.5px; display: flex; justify-content:
   const drop = $("drop");
   let dragDepth = 0;
   const hasFiles = (e) => { const t = Array.from((e.dataTransfer && e.dataTransfer.types) || []); return t.includes("Files") || t.includes("text/uri-list"); };
-  document.addEventListener("dragenter", (e) => { if (!hasFiles(e)) return; e.preventDefault(); dragDepth++; drop.classList.add("over"); });
-  document.addEventListener("dragover", (e) => { if (!hasFiles(e)) return; e.preventDefault(); e.dataTransfer.dropEffect = "copy"; });
+  let innerDrag = false; // something dragged from inside the app itself (text, a picture) is never a new photo
+  document.addEventListener("dragstart", () => { innerDrag = true; }); document.addEventListener("dragend", () => { innerDrag = false; });
+  document.addEventListener("dragenter", (e) => { if (innerDrag || !hasFiles(e)) return; e.preventDefault(); dragDepth++; drop.classList.add("over"); });
+  document.addEventListener("dragover", (e) => { if (innerDrag || !hasFiles(e)) return; e.preventDefault(); e.dataTransfer.dropEffect = "copy"; });
   document.addEventListener("dragleave", () => { dragDepth = Math.max(0, dragDepth - 1); if (!dragDepth) drop.classList.remove("over"); });
   document.addEventListener("drop", (e) => {
+    if (innerDrag) { innerDrag = false; e.preventDefault(); return; }
     if (!hasFiles(e)) return;
     e.preventDefault(); dragDepth = 0; drop.classList.remove("over");
     const files = Array.from(e.dataTransfer.files || []);
