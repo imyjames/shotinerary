@@ -2243,16 +2243,17 @@ footer { color: var(--muted); font-size: 12.5px; display: flex; justify-content:
     }
     return out.week ? { ...out, a: null, b: null, label: "" } : null;
   }
-  function buildTrip(c, packOnly, drop) {
+  function buildTrip(c, packOnly, drop, reserve) {
     if (!packOnly && !drop) {
-      // Musts first: if a Must doesn't fit, try again leaving out the Maybes (then the If-times) to make room.
-      const R = buildTrip(c, false, new Set());
-      const mustMissed = (r) => r.missed.filter((m) => !m.dropped && m.st.photos.some((p) => prioOf(p) === "must")).reduce((n, m) => n + m.st.photos.length, 0);
-      let best = R;
-      for (const d of [new Set(["maybe"]), new Set(["maybe", "if"])]) { if (!mustMissed(best)) break; const R2 = buildTrip(c, false, d); if (mustMissed(R2) < mustMissed(best)) best = R2; }
-      return best;
+      // ★ Must-haves first (Jamie): plan only the ★ places, each at its best light. Those times are then
+      // booked, and every other place is fitted into the time left around them, so a ★ never loses its
+      // light or its place on the plan to a place without a ★.
+      const A = buildTrip(c, false, new Set(["if"]));
+      const res = A.plan.flatMap((d) => d.items.filter((it) => it.type === "stop").map((it) => ({ ...it, date: d.w.date })));
+      return buildTrip(c, false, new Set(), res);
     }
-    drop = drop || new Set();
+    drop = drop || new Set(); reserve = reserve || [];
+    const resIds = new Set(reserve.flatMap((it) => it.st.photos.map((p) => p.id)));
     const trip = c.trip || {}, skip = new Set(trip.skip || []), pins = trip.pins || [];
     const pinned = new Set(pins.flatMap((x) => x.photos || []));
     const centre = cityCentre(c.id), tz = cityTz(c, centre);
@@ -2261,7 +2262,7 @@ footer { color: var(--muted); font-size: 12.5px; display: flex; justify-content:
     const nowT = Date.now();
     for (const p of photos) {
       if (skip.has(p.id)) { skipped.push(p); continue; }
-      if (pinned.has(p.id)) continue;
+      if (pinned.has(p.id) || resIds.has(p.id)) continue;
       if (drop.has(prioOf(p))) { dropped.push(p); continue; }
       if ((p.plans || []).some((pl) => { const t = planMoment(pl.at, tz); return t !== null && t > nowT - 6 * 3600e3; })) { planned.push(p); continue; }
       const ll = p.cam || p.subj || null;
@@ -2295,6 +2296,17 @@ footer { color: var(--muted); font-size: 12.5px; display: flex; justify-content:
       const p0 = ps[0], name = placeLabel(p0) || p0.spot || "Spot";
       fixed.push({ kind: "pin", t, end: t + Math.min(45, TRIP_SHOOT + 5 * (ps.length - 1)) * MIN, pin, photos: ps, name, ll: p0.cam || p0.subj || centre, href: p0.placeUrl || gmPlace(name, c.name), day: pin.date, tip: (ps.find((x) => (x.when || "").trim()) || {}).when || "" });
     }
+    // Booked ★ stops: they keep their time. Photos without a ★ at the same place join them when they can be
+    // shot then (same light, or Anytime), so the place still shows once.
+    for (const it of reserve) {
+      const ps = it.st.photos.map((x) => photos.find((y) => y.id === x.id)).filter(Boolean); if (!ps.length) continue;
+      const pk = it.st.key, st0 = stops.get(pk);
+      if (st0) { const s0 = sunFor(it.date), ds0 = planMoment(it.date + "T00:00", tz);
+        const take = st0.items.filter((x) => x.kinds.some((k) => k === "anytime" || lightRanges(k, s0, ds0, ds0 + 30 * 60 * MIN).some(([ra, rb]) => it.start >= ra - 1 && it.start + TRIP_SHOOT * MIN <= rb + 1)));
+        for (const x of take) ps.push(x.p); st0.items = st0.items.filter((x) => !take.includes(x)); if (!st0.items.length) stops.delete(pk); }
+      const end = Math.max(it.end, it.start + Math.min(45, TRIP_SHOOT + 5 * (ps.length - 1)) * MIN);
+      fixed.push({ kind: "res", t: it.start, end, it: { ...it, end, st: { ...it.st, photos: ps } }, name: it.st.name, ll: it.st.ll, day: it.date });
+    }
     const wins = (trip.windows || []).map((w) => ({ ...w, a: planMoment(w.date + "T" + w.from, tz), b: planMoment(w.date + "T" + w.to, tz) })).filter((w) => w.a !== null && w.b !== null);
     for (const w of wins) if (w.b <= w.a) w.b += 24 * 60 * MIN;
     wins.sort((x, y) => x.a - y.a);
@@ -2306,7 +2318,7 @@ footer { color: var(--muted); font-size: 12.5px; display: flex; justify-content:
     const legs = trip.legs || {};
     const legKey = (from, to) => `${(from || "start").toLowerCase()}>${(to || "").toLowerCase()}`;
     const leg = (pos, from, ll, to) => { const k = legKey(from, to), o = legs[k]; return { ...travel(pos, ll, o || go, !!o), key: k, chosen: o || "", a: pos, b: ll, from, to }; };
-    const fxName = (f) => f.kind === "pin" ? f.name : ((f.pl.from && f.pl.from.name) || placeLabel(f.p) || f.p.spot || "");
+    const fxName = (f) => f.kind === "pin" || f.kind === "res" ? f.name : ((f.pl.from && f.pl.from.name) || placeLabel(f.p) || f.p.spot || "");
     // "Pack early days" (default) fills each day as full as it can, leftovers go to later days.
     // "Spread evenly" caps each day at its fair share of stops.
     const days = [...new Set(wins.map((w) => w.date))], lastDay = days[days.length - 1];
@@ -2346,8 +2358,9 @@ footer { color: var(--muted); font-size: 12.5px; display: flex; justify-content:
       const dow = new Date(Date.UTC(+w.date.slice(0, 4), +w.date.slice(5, 7) - 1, +w.date.slice(8, 10))).getUTCDay(), weekend = dow === 0 || dow === 6;
       const fx = fixed.filter((f) => f.end > w.a && f.t < w.b).sort((x, y) => x.t - y.t);
       const items = []; let t = w.a, at = centre, atName = null;
-      const fits = (st, t0, pos, limit) => {
+      const fits = (st, t0, pos, limit, nfx) => {
         const tr = leg(pos, atName, st.ll, st.name); let best = null;
+        if (nfx) limit -= leg(st.ll, st.name, nfx.ll, fxName(nfx)).min * MIN; // leave time to get to the next booked stop
         const rs = st.items.map((it) => itemRanges(it, s, dayStart, dayEnd));
         for (const list of rs) for (const r of list) {
           const start = Math.max(t0 + tr.min * MIN, r.a);
@@ -2371,12 +2384,16 @@ footer { color: var(--muted); font-size: 12.5px; display: flex; justify-content:
         }
         return best;
       };
+      // A booked ★ stop shows as a normal stop; your own plans and chosen times show as before
+      const fxItem = (f, tr, w) => { if (f.kind !== "res") return { type: f.kind, fx: f, start: f.t, end: f.end, tr };
+        const half = (f.t - dayStart) / MIN < 720 ? "am" : "pm"; perDay[w.date + half] = (perDay[w.date + half] || 0) + 1;
+        return { ...f.it, type: "stop", start: f.t, end: f.end, tr, date: w.date }; };
       let fi = 0;
       while (t < w.b) {
         const nextFixed = fx[fi]; const limit = nextFixed ? nextFixed.t : w.b;
         let pick = null;
         for (const key of left) {
-          const st = stops.get(key); const f = fits(st, t, at, limit); if (!f) continue;
+          const st = stops.get(key); const f = fits(st, t, at, limit, nextFixed); if (!f) continue;
           const half = (f.start - dayStart) / MIN < 720 ? "am" : "pm";
           if (cap && w.date !== lastDay && (perDay[w.date + half] || 0) >= cap[half]) continue;
           const star = f.got.some((it) => isStar(it.p));
@@ -2394,10 +2411,10 @@ footer { color: var(--muted); font-size: 12.5px; display: flex; justify-content:
           { const half = (pick.f.start - dayStart) / MIN < 720 ? "am" : "pm"; perDay[w.date + half] = (perDay[w.date + half] || 0) + 1; }
           t = pick.f.end; at = st.ll; atName = st.name; continue;
         }
-        if (nextFixed) { const tr = leg(at, atName, nextFixed.ll, fxName(nextFixed)); items.push({ type: nextFixed.kind, fx: nextFixed, start: nextFixed.t, end: nextFixed.end, tr }); t = Math.max(t, nextFixed.end); at = nextFixed.ll; atName = fxName(nextFixed); fi++; continue; }
+        if (nextFixed) { const tr = leg(at, atName, nextFixed.ll, fxName(nextFixed)); items.push(fxItem(nextFixed, tr, w)); t = Math.max(t, nextFixed.end); at = nextFixed.ll; atName = fxName(nextFixed); fi++; continue; }
         break;
       }
-      for (; fi < fx.length; fi++) items.push({ type: fx[fi].kind, fx: fx[fi], start: fx[fi].t, end: fx[fi].end, tr: leg(at, atName, fx[fi].ll, fxName(fx[fi])) }), at = fx[fi].ll, atName = fxName(fx[fi]);
+      for (; fi < fx.length; fi++) items.push(fxItem(fx[fi], leg(at, atName, fx[fi].ll, fxName(fx[fi])), w)), at = fx[fi].ll, atName = fxName(fx[fi]);
       fx.forEach((f) => { f.used = true; });
       plan.push({ w, items, s });
     }
