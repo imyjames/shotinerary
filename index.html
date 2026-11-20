@@ -102,6 +102,10 @@ button { font: 500 14px var(--font-body); cursor: pointer; }
 .selbar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 45; background: var(--panel); border-top: 1px solid var(--line); box-shadow: 0 -4px 16px rgba(0,0,0,.12); padding: 12px max(16px, env(safe-area-inset-right, 0px)) calc(12px + env(safe-area-inset-bottom, 0px)) max(16px, env(safe-area-inset-left, 0px)); display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .selbar[hidden] { display: none !important; }
 .selbar { justify-content: space-between; flex-wrap: nowrap; }
+.selbar .selacts { display: flex; gap: 16px; }
+.sheetform { padding: 12px 14px; border-bottom: 1px solid var(--line); }
+.sheetform input { width: 100%; box-sizing: border-box; font-size: 16px; padding: 10px 12px; min-height: 44px; border-radius: 10px; border: 1px solid var(--line); background: var(--panel-2); color: var(--fg); }
+.spotsug { z-index: 200 !important; }
 .selbar .cnt { font-weight: 600; text-align: center; flex: 1; min-width: 0; }
 .selbar .navlink:disabled, .selbar .trash:disabled { opacity: .35; cursor: default; }
 .trash { background: none; border: 0; font-size: 22px; padding: 6px 4px; cursor: pointer; color: var(--bad); }
@@ -135,8 +139,12 @@ body.selecting { padding-bottom: 120px; }
 .lb .delask { position: absolute; top: 8px; left: 4px; right: 4px; z-index: 5; background: var(--panel); border: 1px solid var(--bad); border-radius: var(--radius); padding: 10px 12px; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; box-shadow: 0 8px 24px rgba(0,0,0,.5); }
 .lb .delask[hidden] { display: none !important; }
 .lb .delask span { flex: 1 1 160px; font-weight: 600; }
-.card .namefield { padding: 0 10px 10px; display: flex; gap: 6px; }
-.card .namefield input { flex: 1; font-size: 14px; padding: 6px 8px; }
+/* Naming a spot: one full-width box that says what to do; a blue Save appears once you type */
+.card .namefield { padding: 10px; display: flex; flex-direction: column; gap: 8px; }
+.card .namefield input { width: 100%; box-sizing: border-box; font-size: 16px; padding: 10px 8px; min-height: 44px; border: 1px solid var(--accent); border-radius: 10px; background: var(--panel-2); color: var(--fg); }
+.card .namefield input::placeholder { color: var(--accent); opacity: .9; }
+.card .namefield button { width: 100%; min-height: 40px; }
+.card .namefield:not(.typed) button { display: none; }
 
 .empty { text-align: center; color: var(--muted); padding: 32px 12px; border: 1px solid var(--line); border-radius: 14px; }
 .empty b { color: var(--fg); }
@@ -1037,8 +1045,9 @@ footer { color: var(--muted); font-size: 12.5px; display: flex; justify-content:
     if (!state.sel) { bar.hidden = true; bar.innerHTML = ""; return; }
     const ids = [...state.sel].filter((id) => state.photos.some((p) => p.id === id)), n = ids.length;
     bar.hidden = false;
-    bar.innerHTML = `<button class="navlink" id="selMove" type="button" ${n ? "" : "disabled"}>Move</button><span class="cnt">${n ? `${n} Photo${n === 1 ? "" : "s"} Selected` : "Select Photos"}</span><button class="trash" id="selDel" type="button" aria-label="Delete selected photos" ${n ? "" : "disabled"}>🗑</button>`;
+    bar.innerHTML = `<span class="selacts"><button class="navlink" id="selName" type="button" ${n ? "" : "disabled"}>Name</button><button class="navlink" id="selMove" type="button" ${n ? "" : "disabled"}>Move</button></span><span class="cnt">${n ? `${n} Photo${n === 1 ? "" : "s"} Selected` : "Select Photos"}</span><button class="trash" id="selDel" type="button" aria-label="Delete selected photos" ${n ? "" : "disabled"}>🗑</button>`;
     $("selMove").onclick = () => n && moveMenu(ids, endSelect);
+    $("selName").onclick = () => n && nameSheet(ids, endSelect);
     $("selDel").onclick = () => n && confirmDelete(ids, endSelect);
   }
   // ---------- iPhone-style action sheet ----------
@@ -1062,6 +1071,16 @@ footer { color: var(--muted); font-size: 12.5px; display: flex; justify-content:
       toast(done === n ? (n === 1 ? "Photo deleted." : `Deleted ${n} photos.`) : `Deleted ${done} of ${n}. Try the rest again.`);
       if (after) after(done);
     } }]);
+  }
+  // Name several photos of the same spot at once: Select → tap them → Name
+  function nameSheet(ids, after) {
+    const g = $("sheetGroup"), n = ids.length, first = state.photos.find((p) => p.id === ids[0]) || {};
+    const same = ids.every((id) => ((state.photos.find((p) => p.id === id) || {}).spot || "") === (first.spot || ""));
+    g.innerHTML = `<div class="sheettitle">Name ${n === 1 ? "this photo's spot" : `the spot for these ${n} photos`}</div><form class="sheetform" id="nameAllForm"><input type="text" data-spots id="nameAllIn" placeholder="Name this spot" aria-label="Spot name" enterkeyhint="done" autocomplete="off" value="${esc(same ? first.spot || "" : "")}"></form><button type="button" class="sheetbtn" id="nameAllSave">Save Name</button>`;
+    const save = async () => { const v = $("nameAllIn").value.trim(); if (!v) { $("nameAllIn").focus(); return; } closeSheet(); for (const id of ids) { const p = state.photos.find((x) => x.id === id); if (p) await setSpot(p, v); } toast(n === 1 ? `Named “${v}”.` : `Named ${n} photos “${v}”.`); if (after) after(); };
+    $("nameAllForm").onsubmit = (e) => { e.preventDefault(); save(); }; $("nameAllSave").onclick = save;
+    const sh = $("sheet"); sh.hidden = false; sh.classList.remove("open"); void sh.offsetWidth; sh.classList.add("open"); sheetOpenedAt = 0;
+    setTimeout(() => $("nameAllIn").focus(), 50);
   }
   function moveMenu(ids, after) {
     const from = (state.photos.find((p) => p.id === ids[0]) || {}).cityId;
@@ -1170,10 +1189,10 @@ footer { color: var(--muted); font-size: 12.5px; display: flex; justify-content:
   function card(p, withName) {
     const el = document.createElement("article"); el.className = "card" + (p.shot ? " shot" : ""); el.tabIndex = 0; el.dataset.id = p.id;
     const { landmark, viewpoint } = splitSpot(p.spot);
-    const cap = p.spot ? (viewpoint || landmark) : "No spot name yet";
+    const cap = p.spot ? (viewpoint || landmark) : withName ? "" : "No spot name yet";
     el.innerHTML = `<img class="ph" loading="lazy" alt="${esc(p.spot || "Reference photo")}" src="${blobUrl(p.thumbId)}">
  <div class="tags">${LIGHTS.filter(([k]) => lightsOf(p).includes(k)).map(([, l]) => `<span class="tag">${esc(l)}</span>`).join("")}${hasLoc(p) ? "" : `<span class="tag noloc">No location</span>`}</div>
-      <div class="cap"><span class="v ${p.spot ? "" : "none"}">${esc(cap)}</span></div>${p.shot ? `<span class="shotmark" aria-label="Shot">✓</span>` : ""}`;
+      ${cap ? `<div class="cap"><span class="v ${p.spot ? "" : "none"}">${esc(cap)}</span></div>` : ""}${p.shot ? `<span class="shotmark" aria-label="Shot">✓</span>` : ""}`;
     const img = el.querySelector("img");
     img.onerror = () => { img.removeAttribute("src"); img.alt = "Photo unavailable"; };
 
@@ -1200,7 +1219,8 @@ footer { color: var(--muted); font-size: 12.5px; display: flex; justify-content:
     }
     if (withName) {
       const f = document.createElement("form"); f.className = "namefield";
-      f.innerHTML = `<input type="text" data-spots placeholder="Name its spot…" aria-label="Spot name" autocomplete="off"><button class="btn" type="submit">Save</button>`;
+      f.innerHTML = `<input type="text" data-spots placeholder="Name this spot" aria-label="Name this spot" enterkeyhint="done" autocomplete="off"><button class="btn primary" type="submit">Save</button>`;
+      f.querySelector("input").addEventListener("input", (e) => f.classList.toggle("typed", !!e.target.value.trim()));
       f.onclick = (e) => e.stopPropagation();
       f.onsubmit = (e) => { e.preventDefault(); const inp = f.querySelector("input"); const v = inp.value.trim(); if (v) { inp.blur(); setSpot(p, v); } };
       el.appendChild(f);
