@@ -169,6 +169,10 @@ body.selecting { padding-bottom: 120px; }
 .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; flex-wrap: wrap; }
 .seg button { background: var(--panel-2); color: var(--fg); border: 0; border-right: 1px solid var(--line); padding: 6px 10px; font-size: 13.5px; }
 .seg button:last-child { border-right: 0; }
+.spotsug { position: fixed; z-index: 80; background: var(--panel-2); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; box-shadow: 0 8px 24px rgba(0,0,0,.5); display: flex; flex-direction: column; }
+.spotsug button { text-align: left; background: none; border: 0; border-top: 1px solid var(--line); color: var(--fg); font: 16px var(--font-body); padding: 11px 12px; min-height: 44px; cursor: pointer; line-height: 1.3; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.spotsug button:first-child { border-top: 0; }
+@media (hover: hover) { .spotsug button:hover { background: rgba(255,255,255,.06); } }
 /* Best light: one full-width row like an iPhone segmented control, all six always fit */
 #lightSeg { display: flex; flex-wrap: nowrap; width: 100%; box-sizing: border-box; }
 #lightSeg button { flex: 1 1 auto; min-width: 0; padding: 8px 2px; white-space: nowrap; }
@@ -542,7 +546,7 @@ footer { color: var(--muted); font-size: 12.5px; display: flex; justify-content:
   </div>
   <div class="panel" id="lbPanel">
     <div class="lbhead">
-      <input id="lbSpot" class="titlein" type="text" list="spotList" placeholder="Add a spot name" aria-label="Spot name" autocomplete="off">
+      <input id="lbSpot" class="titlein" type="text" data-spots placeholder="Add a spot name" aria-label="Spot name" autocomplete="off">
       <div class="lbsub" id="lbSub"></div>
       <select id="lbPlace" hidden style="display:none" aria-label="Add this photo to a place"></select>
     </div>
@@ -621,7 +625,7 @@ footer { color: var(--muted); font-size: 12.5px; display: flex; justify-content:
   <button class="btn close" id="zoomClose" type="button">Close</button>
   <div class="zhint" id="zoomHint">Pinch or double-tap to zoom · drag to look around</div>
 </div>
-<datalist id="spotList"></datalist>
+<div class="spotsug" id="spotSug" role="listbox" aria-label="Spots you already named" hidden></div>
 <div class="selbar" id="selBar" hidden></div>
 <div class="trip" id="trip" hidden role="dialog" aria-modal="true" aria-label="Shot plan">
   <div class="tripin">
@@ -1196,7 +1200,7 @@ footer { color: var(--muted); font-size: 12.5px; display: flex; justify-content:
     }
     if (withName) {
       const f = document.createElement("form"); f.className = "namefield";
-      f.innerHTML = `<input type="text" list="spotList" placeholder="Name its spot…" aria-label="Spot name" autocomplete="off"><button class="btn" type="submit">Save</button>`;
+      f.innerHTML = `<input type="text" data-spots placeholder="Name its spot…" aria-label="Spot name" autocomplete="off"><button class="btn" type="submit">Save</button>`;
       f.onclick = (e) => e.stopPropagation();
       f.onsubmit = (e) => { e.preventDefault(); const inp = f.querySelector("input"); const v = inp.value.trim(); if (v) { inp.blur(); setSpot(p, v); } };
       el.appendChild(f);
@@ -1364,10 +1368,31 @@ footer { color: var(--muted); font-size: 12.5px; display: flex; justify-content:
     s.appendChild(grid);
     return s;
   }
+  // Spot names: nothing shows until you type, then at most 3 places you already named in this city
+  // (reusing the exact name keeps those photos together as one place and one stop on the plan).
+  let spotNames = [], sugFor = null;
+  const sugHide = () => { $("spotSug").hidden = true; sugFor = null; };
+  const sugShow = (inp) => {
+    const q = inp.value.trim().toLowerCase(), box = $("spotSug");
+    if (!q) { sugHide(); return; }
+    const m = spotNames.filter((x) => x.toLowerCase() !== q && x.toLowerCase().includes(q)).sort((a, b) => (a.toLowerCase().startsWith(q) ? 0 : 1) - (b.toLowerCase().startsWith(q) ? 0 : 1)).slice(0, 3);
+    if (!m.length) { sugHide(); return; }
+    sugFor = inp; box.innerHTML = m.map((x) => `<button type="button" role="option" data-v="${esc(x)}">${esc(x.endsWith(", ") ? x + "…" : x)}</button>`).join("");
+    const rc = inp.getBoundingClientRect(), W = Math.min(Math.max(rc.width, 320), innerWidth - 32); box.style.width = W + "px"; box.style.left = Math.max(16, Math.min(rc.left, innerWidth - 16 - W)) + "px"; box.style.top = (rc.bottom + 4) + "px"; box.hidden = false;
+  };
+  document.addEventListener("input", (e) => { if (e.target.matches && e.target.matches("input[data-spots]")) sugShow(e.target); });
+  document.addEventListener("focusout", (e) => { if (e.target === sugFor) setTimeout(() => { if (document.activeElement !== sugFor) sugHide(); }, 150); });
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape" && sugFor) sugHide(); }, true);
+  const sugMove = () => { if (!sugFor) return; if (!sugFor.offsetParent) { sugHide(); return; } const rc = sugFor.getBoundingClientRect(), W = $("spotSug").offsetWidth; $("spotSug").style.left = Math.max(16, Math.min(rc.left, innerWidth - 16 - W)) + "px"; $("spotSug").style.top = (rc.bottom + 4) + "px"; };
+  window.addEventListener("scroll", sugMove, true); window.addEventListener("resize", sugMove); if (window.visualViewport) window.visualViewport.addEventListener("resize", sugMove);
+  $("spotSug").addEventListener("pointerdown", (e) => e.preventDefault()); // keep the typing box focused
+  $("spotSug").addEventListener("click", (e) => { const b = e.target.closest("button"); const inp = sugFor; if (!b || !inp) return; inp.value = b.dataset.v; sugHide();
+    if (b.dataset.v.endsWith(", ")) { inp.focus(); return; } // a landmark: keep typing the spot after it
+    const f = inp.closest("form"); if (f && f.requestSubmit) f.requestSubmit(); else { inp.dispatchEvent(new Event("change", { bubbles: true })); inp.blur(); } });
   function renderSpotList() {
     const spots = new Set();
     state.photos.filter((p) => p.cityId === state.cityId).forEach((p) => { if (p.spot) { spots.add(p.spot); const l = splitSpot(p.spot).landmark; if (l) spots.add(l + ", "); } });
-    $("spotList").innerHTML = [...spots].sort().map((s) => `<option value="${esc(s)}"></option>`).join("");
+    spotNames = [...spots].sort();
   }
   function renderMeta() {
     const n = state.photos.length, c = state.cities.length;
@@ -1831,13 +1856,16 @@ footer { color: var(--muted); font-size: 12.5px; display: flex; justify-content:
       el.querySelector("#autoStop").onclick = () => auto.ctl && auto.ctl.abort();
     } else if (state.sampleOff) {
       el.innerHTML = `<div class="note">${esc(auto.msg || `Find this spot isn't available here (${state.sampleOff}).`)}</div>`;
+    } else if (!state.sample && todo) {
+      // This app (Home Screen / browser) has no Claude built in, so there's no button that would do nothing.
+      el.innerHTML = `<div><b>${todo} photo${todo === 1 ? "" : "s"}</b> without a place yet. Name the spot under each photo, or open a photo and paste its Google Maps link.</div>`;
     } else if (todo) {
       el.innerHTML = `<div>${auto.msg ? `<div class="note warn">${esc(auto.msg)}</div>` : ""}<b>${todo} photo${todo === 1 ? "" : "s"}</b> without a place yet. Claude can look at each one and suggest where it is. You just confirm.</div><button class="btn primary" id="autoGo" type="button">Find places for all ${todo}</button>`;
       el.querySelector("#autoGo").onclick = runAuto;
     } else if (wPend.length) {
       el.innerHTML = `<div><b>${wPend.length} when-to-go tip${wPend.length === 1 ? "" : "s"}</b> to check on the photos below. Tap ✓ Use or ✗ Skip on each, or use them all.</div><button class="btn primary" id="whenUseAll" type="button">✓ Use all ${wPend.length}</button>`;
       el.querySelector("#whenUseAll").onclick = async () => { for (const p of wPend) await applyWhen(p, p.whenSuggest); toast(`Saved ${wPend.length} tip${wPend.length === 1 ? "" : "s"}. Open a photo to see or change them.`); };
-    } else if (wTodo && !state.sampleOff) {
+    } else if (wTodo && state.sample && !state.sampleOff) {
       el.innerHTML = `<div>${auto.msg ? `<div class="note warn">${esc(auto.msg)}</div>` : ""}Claude can suggest the best light and when to go (crowds, quiet times, which way it faces) for <b>${wTodo} photo${wTodo === 1 ? "" : "s"}</b>. You check them after.</div><button class="btn primary" id="whenGo" type="button">Suggest when to go for all ${wTodo}</button>`;
       el.querySelector("#whenGo").onclick = runWhenAll;
     } else return null;
