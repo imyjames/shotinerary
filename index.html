@@ -169,6 +169,9 @@ body.selecting { padding-bottom: 120px; }
 .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; flex-wrap: wrap; }
 .seg button { background: var(--panel-2); color: var(--fg); border: 0; border-right: 1px solid var(--line); padding: 6px 10px; font-size: 13.5px; }
 .seg button:last-child { border-right: 0; }
+/* Best light: one full-width row like an iPhone segmented control, all six always fit */
+#lightSeg { display: flex; flex-wrap: nowrap; width: 100%; box-sizing: border-box; }
+#lightSeg button { flex: 1 1 auto; min-width: 0; padding: 8px 2px; white-space: nowrap; }
 .packrow { display: flex; flex-direction: column; gap: 6px; max-width: 360px; font-size: 15px; margin: 4px 0 10px; }
 .seg.full { display: flex; flex-wrap: nowrap; } .seg.full button { flex: 1 1 0; padding: 8px 6px; font-size: 14px; }
 .lb .stage img { cursor: zoom-in; }
@@ -455,7 +458,11 @@ body.selecting { padding-bottom: 120px; }
 .suntbl .hd { grid-column: 1 / -1; font-weight: 600; color: var(--fg); margin-top: 6px; font-family: var(--font-body); font-size: 13px; }
 .sunrow { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .sunrow input[type="date"] { font: 15px var(--font-body); color: var(--fg); background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; color-scheme: dark; }
-textarea { font: 14px var(--font-body); color: var(--fg); background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; resize: vertical; min-height: 60px; width: 100%; box-sizing: border-box; }
+/* Notes boxes grow to fit their text (like Notes), so there is never a small box to scroll inside */
+textarea { font: 14px var(--font-body); color: var(--fg); background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; resize: none; overflow: hidden; min-height: 44px; width: 100%; box-sizing: border-box; field-sizing: content; }
+/* iPhone Safari zooms the whole page in when you tap a typing box with text under 16px, and stays zoomed, so the
+   page looks wider than the screen. Typing boxes on touch screens use 16px or more, so it never zooms. */
+@media (pointer: coarse) { input, textarea, select { font-size: max(16px, 1em) !important; } }
 select.sm { font: 13.5px var(--font-body); background: var(--panel-2); color: var(--fg); border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; }
 .suggest { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 12px; display: flex; flex-direction: column; gap: 8px; }
 .suggest .name { font: 600 15px var(--font-display); }
@@ -1434,14 +1441,19 @@ footer { color: var(--muted); font-size: 12.5px; display: flex; justify-content:
       $("faceView").innerHTML = `Facing ${compassOf(h)} (${Math.round(h)}°)<small>${esc(d)}</small>`;
     } else $("faceView").innerHTML = `<span class="note">Paste the landmark's location to work out which way to point the camera, or pick a direction.</span>`;
     $("lightSeg").querySelectorAll("button").forEach((b) => b.setAttribute("aria-pressed", String(lightsOf(p).includes(b.dataset.light))));
-    if (full || document.activeElement !== $("lbNotes")) $("lbNotes").value = p.notes || "";
+    if (full || document.activeElement !== $("lbNotes")) { $("lbNotes").value = p.notes || ""; growTa($("lbNotes")); }
     if (full || !$("findWrap").contains(document.activeElement)) renderFind(p);
     renderWhen(p, full); renderSun(p, full);
   }
   // When to go: your own note, or Claude's suggestion to accept
   const whenAsks = {};
+  const growTa = (t) => { if (!t || t.tagName !== "TEXTAREA" || !t.offsetParent) return; t.style.height = "auto"; t.style.height = (t.scrollHeight + 2) + "px"; };
+  const growAll = () => document.querySelectorAll("textarea").forEach(growTa);
+  document.addEventListener("input", (e) => growTa(e.target)); document.addEventListener("focusin", (e) => growTa(e.target));
+  { let q = 0; new MutationObserver(() => { if (!q) q = requestAnimationFrame(() => { q = 0; growAll(); }); }).observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["hidden"] }); }
+  window.addEventListener("resize", growAll);
   function renderWhen(p, full) {
-    if (full || document.activeElement !== $("lbWhen")) $("lbWhen").value = p.when || "";
+    if (full || document.activeElement !== $("lbWhen")) { $("lbWhen").value = p.when || ""; growTa($("lbWhen")); }
     const w = $("whenSug"), ws = p.whenSuggest, busy = whenAsks[p.id];
     if (busy === "looking") { w.innerHTML = `<div class="whensug">Claude is thinking about when to go…</div>`; return; }
     if (ws) {
@@ -2036,8 +2048,8 @@ footer { color: var(--muted); font-size: 12.5px; display: flex; justify-content:
     const ll = (timesLoc(p) || {}).ll, tz = placeTz(p, ll), cname = cityName(p.cityId) || "";
     const editing = planEdit && planEdit.pid === p.id ? planEdit : null;
     const form = (pl) => `<form class="planform plan" id="planForm">
-        <label>Shooting from<input id="planFrom" type="text" value="${esc(pl.from ? (pl.from.url || pl.from.name || "") : "")}" placeholder="Paste a Google Maps link, or type a place" autocomplete="off"></label>
-        <label>Aiming at (optional)<input id="planAim" type="text" value="${esc(pl.aim || "")}" placeholder="e.g. Marina Bay Sands with the moon" autocomplete="off"></label>
+        <label>Shooting from<input id="planFrom" type="text" enterkeyhint="next" value="${esc(pl.from ? (pl.from.url || pl.from.name || "") : "")}" placeholder="Paste a Google Maps link, or type a place" autocomplete="off"></label>
+        <label>Aiming at (optional)<input id="planAim" type="text" enterkeyhint="next" value="${esc(pl.aim || "")}" placeholder="e.g. Marina Bay Sands with the moon" autocomplete="off"></label>
         <div class="two"><label>Date<input id="planDate" type="date" value="${esc((pl.at || "").slice(0, 10))}"></label><label>Time<span class="tpick">${tpHtml("planTime", (pl.at || "").slice(11, 16), true)}</span></label></div>
         <label>Notes<textarea id="planNotes" rows="2" placeholder="e.g. moon 2° above the deck; camera settings go in Camera setup below">${esc(pl.notes || "")}</textarea></label>
         <div class="note">Times are ${tz ? `local time in ${esc(cname || "this city")}` : "in your phone's time"}.</div>
@@ -2101,14 +2113,14 @@ footer { color: var(--muted); font-size: 12.5px; display: flex; justify-content:
       const lenses = [...new Set(state.photos.map((x) => x.cam_setup && x.cam_setup.lens).filter(Boolean))];
       box.innerHTML = `<form class="planform plan camform" id="camForm">
         <div class="note">Starting points to set you up, not locked values. Type it however you like: "800" for shutter becomes 1/800 s.</div>
-        <label>Lens<input id="camLens" type="text" list="camLensList" value="${esc((c && c.lens) || "")}" placeholder="e.g. 100-400mm" autocomplete="off"></label>
+        <label>Lens<input id="camLens" type="text" enterkeyhint="next" list="camLensList" value="${esc((c && c.lens) || "")}" placeholder="e.g. 100-400mm" autocomplete="off"></label>
         <datalist id="camLensList">${lenses.map((l) => `<option value="${esc(l)}">`).join("")}</datalist>
         <label>Shooting mode<select id="camMode">${CAM_MODES.map(([k, l]) => `<option value="${k}" ${((c && c.mode) || "") === k ? "selected" : ""}>${l}</option>`).join("")}</select></label>
-        <div class="two"><label>Shutter<input id="camShutter" type="text" inputmode="text" list="camShList" value="${esc((c && c.shutter) || "")}" placeholder="1/800" autocomplete="off"></label><label>ISO<input id="camIso" type="text" inputmode="numeric" list="camIsoList" value="${esc((c && c.iso) || "")}" placeholder="100" autocomplete="off"></label><label>F-stop<input id="camF" type="text" inputmode="decimal" list="camFList" value="${esc((c && c.f) || "")}" placeholder="f/8" autocomplete="off"></label></div>
+        <div class="two"><label>Shutter<input id="camShutter" type="text" enterkeyhint="next" inputmode="text" list="camShList" value="${esc((c && c.shutter) || "")}" placeholder="1/800" autocomplete="off"></label><label>ISO<input id="camIso" type="text" enterkeyhint="next" inputmode="numeric" list="camIsoList" value="${esc((c && c.iso) || "")}" placeholder="100" autocomplete="off"></label><label>F-stop<input id="camF" type="text" enterkeyhint="next" inputmode="decimal" list="camFList" value="${esc((c && c.f) || "")}" placeholder="f/8" autocomplete="off"></label></div>
         <datalist id="camShList">${["1/4000", "1/1000", "1/800", "1/500", "1/250", "1/125", "1/60", "1/30", "1/15", "1 s", "2 s", "10 s", "30 s", "Bulb"].map((x) => `<option value="${x}">`).join("")}</datalist>
         <datalist id="camIsoList">${["64", "100", "200", "400", "800", "1600", "3200", "6400", "Auto"].map((x) => `<option value="${x}">`).join("")}</datalist>
         <datalist id="camFList">${["f/1.8", "f/2.8", "f/4", "f/5.6", "f/8", "f/11", "f/16", "f/22"].map((x) => `<option value="${x}">`).join("")}</datalist>
-        <label>Exposures<input id="camExp" type="text" value="${esc((c && c.exp) || "")}" placeholder="e.g. 2 exposures: moon, then city · or 5 brackets ±1" autocomplete="off"></label>
+        <label>Exposures<input id="camExp" type="text" enterkeyhint="next" value="${esc((c && c.exp) || "")}" placeholder="e.g. 2 exposures: moon, then city · or 5 brackets ±1" autocomplete="off"></label>
         <label>Other notes<textarea id="camNotes" rows="2" placeholder="e.g. expose for the moon first, then the buildings">${esc((c && c.notes) || "")}</textarea></label>
         <label>Don't forget (one per line)<textarea id="camDf" rows="3" placeholder="e.g. Switch to Manual">${esc(df.map((d) => d.t).join("\n"))}</textarea></label>
         <div class="dfchips">${DF_SUGGEST.map((t) => `<button type="button" data-df="${esc(t)}">+ ${esc(t)}</button>`).join("")}</div>
@@ -2788,6 +2800,15 @@ footer { color: var(--muted); font-size: 12.5px; display: flex; justify-content:
     else if (e.key === "ArrowRight") step(1);
   });
 
+  // Plan and camera forms: return in a one-line box goes to the next box to type in (like iPhone Settings forms),
+  // never saves the form; return in a notes box starts a new line. Save is the Save button.
+  document.addEventListener("keydown", (e) => {
+    const t = e.target; if (e.key !== "Enter" || e.isComposing || !t || t.tagName !== "INPUT" || !/^(text|search|url|)$/.test(t.type === "text" ? "text" : (t.getAttribute("type") || ""))) return;
+    const f = t.closest("form.planform"); if (!f) return;
+    e.preventDefault();
+    const boxes = [...f.querySelectorAll('input[type="text"], input:not([type]), textarea')].filter((x) => x.offsetParent && !x.disabled);
+    const nx = boxes[boxes.indexOf(t) + 1]; if (nx) nx.focus(); else t.blur();
+  });
   // ---------- paste & drop ----------
   document.addEventListener("paste", (e) => {
     const items = Array.from((e.clipboardData && e.clipboardData.items) || []);
