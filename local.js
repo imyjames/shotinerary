@@ -47,7 +47,58 @@
   };
   // Images: in-page links to the photos kept on this device
   window.shotBlobUrl = (id) => { if (urls.has(id)) return urls.get(id); const b = blobs.get(id); if (!b) return ""; const u = URL.createObjectURL(b); urls.set(id, u); return u; };
-  window.claude = { use: async (name) => { await ready; return { db, assets, sample: null }[name] || null; } };
+  // ---------- Photo finder: Jamie's own AI key (Anthropic), kept on this device only, never in backups ----------
+  const KEY = "shot.aiKey", SPENT = "shot.aiSpent";
+  const lsg = (k) => { try { return localStorage.getItem(k); } catch { return null; } };
+  const lss = (k, v) => { try { v === null ? localStorage.removeItem(k) : localStorage.setItem(k, v); } catch {} };
+  window.shotAIKey = () => lsg(KEY);
+  window.shotSetAIKey = (k) => lss(KEY, k ? String(k).trim() : null);
+  // Checks a key without spending anything (lists the models). Returns "ok", "bad" or "offline".
+  window.shotCheckAIKey = async (k) => { try { const r = await fetch("https://api.anthropic.com/v1/models?limit=1", { headers: { "x-api-key": k, "anthropic-version": "2023-06-01", "anthropic-dangerous-direct-browser-access": "true" } }); return r.ok ? "ok" : r.status === 401 || r.status === 403 ? "bad" : "offline"; } catch { return "offline"; } };
+  window.shotAISpent = () => Number(lsg(SPENT)) || 0; // dollars, worked out from what Anthropic reports for each request
+  // Sends a smaller copy of the photo (long side 1568 px, the size Claude reads best). Cheaper and well under the size limit.
+  const shrink = (blob) => new Promise((res, rej) => {
+    const u = URL.createObjectURL(blob), im = new Image();
+    im.onload = () => { const s = Math.min(1, 1568 / Math.max(im.naturalWidth, im.naturalHeight)); const cv = document.createElement("canvas"); cv.width = Math.round(im.naturalWidth * s); cv.height = Math.round(im.naturalHeight * s); cv.getContext("2d").drawImage(im, 0, 0, cv.width, cv.height); URL.revokeObjectURL(u); cv.toBlob((b) => b ? res(b) : rej({ code: "image_rejected" }), "image/jpeg", 0.85); };
+    im.onerror = () => { URL.revokeObjectURL(u); rej({ code: "image_rejected" }); };
+    im.src = u;
+  });
+  const dataUrl = (b) => new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = () => rej(r.error); r.readAsDataURL(b); });
+  const b64 = async (b) => { const s = await dataUrl(b); return s.slice(s.indexOf(",") + 1); };
+  const ai = {
+    async limits() { return { images: { maxInputBytes: 60e6, mediaTypes: null } }; },
+    async json(prompt, opts = {}) {
+      const key = lsg(KEY); if (!key) throw { code: "no_key" };
+      const content = [];
+      for (const im of [].concat(opts.images || [])) content.push({ type: "image", source: { type: "base64", media_type: "image/jpeg", data: await b64(await shrink(im)) } });
+      content.push({ type: "text", text: prompt });
+      let r;
+      try {
+        r = await fetch("https://api.anthropic.com/v1/messages", {
+          method: "POST", signal: opts.signal,
+          headers: { "content-type": "application/json", "x-api-key": key, "anthropic-version": "2023-06-01", "anthropic-dangerous-direct-browser-access": "true" },
+          body: JSON.stringify({ model: "claude-opus-5-5", max_tokens: 16000, thinking: { type: "adaptive" }, messages: [{ role: "user", content }] }),
+        });
+      } catch (e) { throw { code: e && e.name === "AbortError" ? "cancelled" : "network" }; }
+      let j = null; try { j = await r.json(); } catch {}
+      if (!r.ok) {
+        const msg = ((j && j.error && j.error.message) || "").toLowerCase();
+        if (r.status === 401 || r.status === 403) throw { code: "bad_key" };
+        if (/credit|balance|billing/.test(msg)) throw { code: "no_credit" };
+        if (r.status === 429 || r.status === 529 || r.status >= 500) throw { code: "busy" };
+        if (/image/.test(msg)) throw { code: "image_rejected" };
+        throw { code: "api_error", detail: (j && j.error && j.error.message) || "error " + r.status };
+      }
+      const u = j.usage || {}; // Claude Opus 5.5: $4 per million tokens in, $20 per million out
+      lss(SPENT, String(window.shotAISpent() + ((u.input_tokens || 0) + (u.cache_creation_input_tokens || 0)) * 4e-6 + (u.cache_read_input_tokens || 0) * 0.2e-6 + (u.output_tokens || 0) * 20e-6));
+      if (j.stop_reason === "refusal") throw { code: "refused" };
+      const text = (j.content || []).filter((b) => b.type === "text").map((b) => b.text).join("\n");
+      if (!text.trim()) throw { code: "empty_completion" };
+      const a = text.indexOf("{"), z = text.lastIndexOf("}");
+      try { return JSON.parse(text.slice(a, z + 1)); } catch { throw { code: "invalid_json" }; }
+    },
+  };
+  window.claude = { use: async (name) => { await ready; return { db, assets, sample: lsg(KEY) ? ai : null }[name] || null; } };
 
   // ---------- Back up and restore (one file with every photo and all your data) ----------
   const toDataUrl = (b) => new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = () => rej(r.error); r.readAsDataURL(b); });

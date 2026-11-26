@@ -228,7 +228,7 @@ body.selecting { padding-bottom: 120px; }
 .planacts { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
 .planacts a.btn { text-decoration: none; }
 .planform { display: flex; flex-direction: column; gap: 8px; }
-#localTools { display: flex; flex-direction: column; gap: 6px; } .bkrow { display: flex; gap: 8px; flex-wrap: wrap; }
+#localTools { display: flex; flex-direction: column; gap: 6px; } .aibox { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line, #333); text-align: left; } .airow { display: flex; gap: 8px; } .airow input { flex: 1; min-width: 0; font: 16px var(--font-body); color: var(--fg); background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; padding: 7px 10px; } .bkrow { display: flex; gap: 8px; flex-wrap: wrap; }
 .cam { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; }
 .cam .camgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 8px 12px; margin: 0; }
 .cam .camgrid div { display: flex; flex-direction: column; } .cam .camgrid dt { font-size: 12px; color: var(--muted); } .cam .camgrid dd { margin: 0; font-weight: 600; font-size: 16px; }
@@ -1568,7 +1568,7 @@ footer { color: var(--muted); font-size: 12.5px; display: flex; justify-content:
     const a = $("whenAsk"); if (a) a.onclick = async () => {
       whenAsks[p.id] = "looking"; renderWhen(p);
       try { const r = await askWhen(p); delete whenAsks[p.id]; if (r.when || r.light.length) await updatePhoto(p.id, { whenSuggest: { ...r, at: new Date().toISOString() } }); else whenAsks[p.id] = "Claude had no suggestion for this one."; }
-      catch (e) { const code = e && e.code; whenAsks[p.id] = SAMPLE_OFF.includes(code) ? "Claude isn't available here." : sampleErrorText(code); }
+      catch (e) { const code = e && e.code; whenAsks[p.id] = SAMPLE_OFF.includes(code) ? "Claude isn't available here." : sampleErrorText(code, e); }
       const cur = lbPhoto(); if (cur && cur.id === p.id) renderWhen(cur);
     };
   }
@@ -1669,8 +1669,14 @@ footer { color: var(--muted); font-size: 12.5px; display: flex; justify-content:
   // Find this spot: Claude looks at the photo and suggests where the camera stood. Jamie confirms.
   const finds = {}; // photoId -> {status: "looking"|"done"|"error"|"hint", result, error, ctl, hint}
   const SAMPLE_OFF = ["not_granted", "sampling_disabled", "not_declared", "capability_disabled", "capability_removed", "images_unavailable"];
-  function sampleErrorText(code) {
+  function sampleErrorText(code, e) {
     return {
+      no_key: "Add your AI key first: it's under Photo finder at the bottom of the home page.",
+      bad_key: "Your AI key isn't working. Check it under Photo finder at the bottom of the home page (it starts with sk-ant-).",
+      no_credit: "Your AI credit has run out. Add more at platform.claude.com, under Settings, then Billing.",
+      busy: "The AI is busy right now. Try again in a minute.",
+      network: "Couldn't reach the AI. Check you have internet and try again.",
+      api_error: "The AI said: " + ((e && e.detail) || "something went wrong") + ".",
       rate_limited: "Claude is busy, or you've reached your Claude usage limit. Try again a bit later.",
       session_expired: "You need to sign in to Claude again, then try.",
       image_rejected: "Claude couldn't read this image. Try a different copy of it.",
@@ -1681,12 +1687,12 @@ footer { color: var(--muted); font-size: 12.5px; display: flex; justify-content:
   }
   function renderFind(p) {
     const w = $("findWrap");
-    if (!state.sample || state.sampleOff) { w.innerHTML = state.sampleOff ? `<div class="note">Find this spot isn't available here (${esc(state.sampleOff)}).</div>` : window.SHOT_LOCAL && !hasLoc(p) ? `<div class="note">"Find this spot" works in the Claude version on your Mac. Paste a Google Maps link below to add the location here.</div>` : ""; return; }
+    if (!state.sample || state.sampleOff) { w.innerHTML = state.sampleOff ? `<div class="note">Find this spot isn't available here (${esc(state.sampleOff)}).</div>` : window.SHOT_LOCAL && !hasLoc(p) ? `<div class="note">To let the app find this spot for you, add your AI key under Photo finder at the bottom of the home page. Or paste a Google Maps link below.</div>` : ""; return; }
     let f = finds[p.id];
     if (!f && toConfirm(p)) f = finds[p.id] = { status: "done", result: p.suggest };
     if (!f || f.status === "idle") {
       w.innerHTML = `<button class="btn" id="findBtn" type="button">Find this spot with Claude</button>
-        <div class="note" style="margin-top:6px">Claude looks at the photo and suggests where it was taken from. You check it in Street View and decide. Uses your Claude plan.</div>`;
+        <div class="note" style="margin-top:6px">Claude looks at the photo and suggests where it was taken from. You check it in Street View and decide. ${window.SHOT_LOCAL ? "Uses your AI credit, about 5 to 10 cents a photo." : "Uses your Claude plan."}</div>`;
       $("findBtn").onclick = () => runFind(p.id);
       return;
     }
@@ -1869,7 +1875,7 @@ footer { color: var(--muted); font-size: 12.5px; display: flex; justify-content:
       const code = e && e.code;
       if (code === "cancelled") { delete finds[id]; }
       else if (SAMPLE_OFF.includes(code)) { delete finds[id]; state.sampleOff = offReason(code); }
-      else { f.status = "error"; f.error = sampleErrorText(code); }
+      else { f.status = "error"; f.error = sampleErrorText(code, e); }
     }
     show();
   }
@@ -1895,7 +1901,7 @@ footer { color: var(--muted); font-size: 12.5px; display: flex; justify-content:
         const code = e && e.code;
         if (code === "cancelled") break;
         if (SAMPLE_OFF.includes(code)) { state.sampleOff = offReason(code); auto.msg = `Stopped: Find this spot isn't available here (${state.sampleOff}).`; break; }
-        if (code === "rate_limited" || code === "session_expired") { auto.msg = "Stopped: " + sampleErrorText(code) + " The rest will wait until you tap again."; break; }
+        if (["rate_limited", "session_expired", "no_key", "bad_key", "no_credit", "busy", "network", "api_error"].includes(code)) { auto.msg = "Stopped: " + sampleErrorText(code, e) + " The rest will wait until you tap again."; break; }
         await updatePhoto(id, { findTried: { at: new Date().toISOString(), error: code || "error" } });
       }
       auto.done++; renderGallery();
@@ -1921,7 +1927,7 @@ footer { color: var(--muted); font-size: 12.5px; display: flex; justify-content:
         const code = e && e.code;
         if (code === "cancelled") break;
         if (SAMPLE_OFF.includes(code)) { state.sampleOff = offReason(code); auto.msg = `Stopped: Claude isn't available here (${state.sampleOff}).`; break; }
-        if (code === "rate_limited" || code === "session_expired") { auto.msg = "Stopped: " + sampleErrorText(code) + " The rest will wait until you tap again."; break; }
+        if (["rate_limited", "session_expired", "no_key", "bad_key", "no_credit", "busy", "network", "api_error"].includes(code)) { auto.msg = "Stopped: " + sampleErrorText(code, e) + " The rest will wait until you tap again."; break; }
         await updatePhoto(id, { whenTried: { at: new Date().toISOString(), error: code || "error" } });
       }
       auto.done++; renderGallery();
@@ -1938,7 +1944,7 @@ footer { color: var(--muted); font-size: 12.5px; display: flex; justify-content:
       el.innerHTML = `<div class="note">${esc(auto.msg || `Find this spot isn't available here (${state.sampleOff}).`)}</div>`;
     } else if (!state.sample && todo) {
       // This app (Home Screen / browser) has no Claude built in, so there's no button that would do nothing.
-      el.innerHTML = `<div><b>${todo} photo${todo === 1 ? "" : "s"}</b> without a place yet. Name the spot under each photo, or open a photo and paste its Google Maps link.</div>`;
+      el.innerHTML = `<div><b>${todo} photo${todo === 1 ? "" : "s"}</b> without a place yet. Name the spot under each photo, or open a photo and paste its Google Maps link.${window.SHOT_LOCAL ? " Or add your AI key under Photo finder at the bottom of this page, and the app can find them for you." : ""}</div>`;
     } else if (todo) {
       el.innerHTML = `<div>${auto.msg ? `<div class="note warn">${esc(auto.msg)}</div>` : ""}<b>${todo} photo${todo === 1 ? "" : "s"}</b> without a place yet. Claude can look at each one and suggest where it is. You just confirm.</div><button class="btn primary" id="autoGo" type="button">Find places for all ${todo}</button>`;
       el.querySelector("#autoGo").onclick = runAuto;
@@ -3054,6 +3060,31 @@ footer { color: var(--muted); font-size: 12.5px; display: flex; justify-content:
     const showLast = () => { const l = window.shotLastBackup && window.shotLastBackup(); const d = l ? Math.floor((Date.now() - Date.parse(l)) / 864e5) : null; $("lastBk").textContent = l ? `Last backup: ${d === 0 ? "today" : d === 1 ? "yesterday" : d + " days ago"}` : "Not backed up yet"; $("lastBk").style.color = d === null || d > 14 ? "var(--warn)" : ""; };
     lt.innerHTML = `<div class="bkrow"><button class="btn" type="button" id="bkBtn">Back up</button><button class="btn ghost" type="button" id="rsBtn">Restore from a backup…</button><input type="file" id="rsFile" multiple hidden></div><span id="lastBk"></span>`;
     showLast();
+    // Photo finder: Jamie's own AI key, kept on this phone only (never in backups)
+    const aiBox = document.createElement("div"); aiBox.className = "aibox"; aiBox.id = "aiBox"; lt.appendChild(aiBox);
+    const money = (d) => d < 0.01 ? "less than 1 cent" : "$" + d.toFixed(2);
+    const aiOn = async () => { state.sample = await window.claude.use("sample"); state.sampleOff = null; auto.msg = ""; render(); if (!$("lb").hidden && lbPhoto()) renderFind(lbPhoto()); };
+    const renderAI = () => {
+      if (window.shotAIKey()) {
+        aiBox.innerHTML = `<div><b>Photo finder is on.</b> About ${money(window.shotAISpent())} of AI credit used on this ${/iPhone|iPad/.test(navigator.userAgent) ? "phone" : "device"}. Your key stays here and isn't in backups.</div><button class="btn ghost sm" type="button" id="aiOff">Remove key</button>`;
+        $("aiOff").onclick = () => { window.shotSetAIKey(null); renderAI(); aiOn(); toast("AI key removed from this device."); };
+      } else {
+        aiBox.innerHTML = `<div><b>Photo finder</b><br>Paste your AI key and the app can work out where each photo was taken. The key starts with sk-ant-.</div><div class="airow"><input id="aiIn" type="password" placeholder="sk-ant-…" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" enterkeyhint="done"><button class="btn primary sm" type="button" id="aiSave">Save</button></div>`;
+        const save = async () => {
+          const k = ($("aiIn").value || "").replace(/\s+/g, "").replace(/^["'“”‘’]+|["'“”‘’]+$/g, "");
+          if (!k) { $("aiIn").focus(); return; }
+          if (!/^sk-ant-/.test(k)) { toast("That doesn't look like an AI key. It starts with sk-ant-."); return; }
+          $("aiSave").disabled = true; $("aiSave").textContent = "Checking…";
+          const ok = await window.shotCheckAIKey(k);
+          if (ok === "bad") { $("aiSave").disabled = false; $("aiSave").textContent = "Save"; toast("Anthropic didn't accept that key. Copy it again and paste it here."); return; }
+          window.shotSetAIKey(k); renderAI(); aiOn();
+          toast(ok === "ok" ? "Photo finder is on. Open a photo and tap Find this spot." : "Saved. It couldn't be checked without internet, so it will be tried the first time you use it.");
+        };
+        $("aiSave").onclick = save;
+        $("aiIn").onkeydown = (e) => { if (e.key === "Enter") { e.preventDefault(); save(); } };
+      }
+    };
+    renderAI();
     $("bkBtn").onclick = async () => { $("bkBtn").disabled = true; try { const r = await window.shotBackup(); if (!r.cancelled) toast(`Backed up ${r.photos} photos. Keep the file in iCloud Drive or on your Mac.`); } catch (e) { toast("Couldn't make the backup. " + ((e && e.message) || "")); } $("bkBtn").disabled = false; showLast(); if (state.view === "home") renderHome(); };
     $("rsBtn").onclick = () => $("rsFile").click();
     $("rsFile").onchange = async (e) => { const fs = [...e.target.files]; e.target.value = ""; if (!fs.length) return; toast("Restoring…"); let n = 0, bad = 0; for (const f of fs) { try { n += (await window.shotRestore(f)).photos; } catch (err) { bad++; } } toast(bad && !n ? "Couldn't read that file. Pick a Shotinerary backup." : `Restored ${n} photos${bad ? ` (${bad} file${bad > 1 ? "s" : ""} couldn't be read)` : ""}.`); };
