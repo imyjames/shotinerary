@@ -126,7 +126,7 @@ body.selecting { padding-bottom: 120px; }
 .sugrow .sugc { flex: none; width: 22px; height: 22px; border-radius: 50%; border: 1.5px solid var(--muted); color: transparent; font-size: 13px; line-height: 20px; text-align: center; margin-top: 1px; }
 .sugrow.on .sugc { background: var(--accent); border-color: var(--accent); color: #fff; }
 .sugrow.had { opacity: .45; cursor: default; }
-.sugt { display: flex; flex-direction: column; gap: 3px; min-width: 0; } .sugt small { color: var(--muted); font-size: 13px; }
+.sugt { display: flex; flex-direction: column; gap: 3px; min-width: 0; } .sugt small { color: var(--muted); font-size: 13px; } .sugt .reflink { color: var(--accent); text-decoration: none; font-size: 15px; padding: 4px 0; align-self: flex-start; }
 .sugbar { display: flex; gap: 8px; padding: 10px 16px; border-top: 1px solid var(--line); position: sticky; bottom: 0; background: var(--sheet); } .sugbar .btn { flex: 1; }
 .sugnote { padding: 0 16px 14px; text-align: center; } .lbref { margin-top: 6px; color: var(--muted); font-size: 15px; } .lbref a { color: var(--accent); }
 .sheetbtn { background: none; border: 0; border-top: 1px solid var(--line); color: var(--accent); font: 400 18px var(--font-body); padding: 15px 16px; cursor: pointer; text-align: center; }
@@ -1436,13 +1436,13 @@ footer { color: var(--muted); font-size: 12.5px; display: flex; justify-content:
       $("sugAgain").onclick = () => runSpots(c); return;
     }
     const rows = s.list.map((r, i) => { const had = spotHad(c.id, r); if (had) s.picked.delete(i); const on = s.picked.has(i);
-      return `<button type="button" class="sugrow${on ? " on" : ""}${had ? " had" : ""}" data-i="${i}"${had ? " disabled" : ""} aria-pressed="${on}"><span class="sugc" aria-hidden="true">✓</span><span class="sugt"><b>${esc(r.spot_name)}</b>${r.aim ? `<small>Aim at: ${esc(r.aim)}</small>` : ""}<small>${had ? "Already in your list" : esc([L(r.light), r.when].filter(Boolean).join(" · "))}</small></span></button>`; }).join("");
+      return `<div role="button" tabindex="0" class="sugrow${on ? " on" : ""}${had ? " had" : ""}" data-i="${i}"${had ? ' aria-disabled="true"' : ""} aria-pressed="${on}"><span class="sugc" aria-hidden="true">✓</span><span class="sugt"><b>${esc(r.spot_name)}</b>${r.aim ? `<small>Aim at: ${esc(r.aim)}</small>` : ""}<small>${had ? "Already in your list" : esc([L(r.light), r.when].filter(Boolean).join(" · "))}</small>${refLinks(r.place_name || r.spot_name, c.name)}</span></div>`; }).join("");
     const free = s.list.map((r, i) => i).filter((i) => !spotHad(c.id, s.list[i])), n = s.picked.size, allOn = free.length && free.every((i) => s.picked.has(i));
     g.innerHTML = `<div class="sheettitle">Photo spots in ${esc(c.name)}<br>Tick the ones you want, then tap Add.</div>${s.error ? `<div class="sugwait note warn">${esc(s.error)}</div>` : ""}<div class="suglist">${rows}</div>
       <div class="sugbar"><button type="button" class="btn ghost" id="sugAll"${free.length ? "" : " disabled"}>${allOn ? "Select none" : "Select all"}</button><button type="button" class="btn primary" id="sugAdd"${n ? "" : " disabled"}>${n ? `Add ${n} spot${n === 1 ? "" : "s"}` : "Add"}</button></div>
       <button type="button" class="sheetbtn" id="sugMore"${s.status === "looking" ? " disabled" : ""}>${s.status === "looking" ? "Looking for more…" : "Suggest more"}</button>
       <div class="sugnote note">Suggested by AI from what it knows, so check each one. Uses your AI credit, a few cents a time.</div>`;
-    g.querySelectorAll(".sugrow").forEach((b) => b.onclick = () => { const i = +b.dataset.i; if (s.picked.has(i)) s.picked.delete(i); else s.picked.add(i); renderSugSheet(c); });
+    g.querySelectorAll(".sugrow").forEach((b) => b.onclick = (e) => { if (e.target.closest("a") || b.classList.contains("had")) return; const i = +b.dataset.i; if (s.picked.has(i)) s.picked.delete(i); else s.picked.add(i); renderSugSheet(c); });
     $("sugAll").onclick = () => { if (allOn) s.picked.clear(); else free.forEach((i) => s.picked.add(i)); renderSugSheet(c); };
     $("sugMore").onclick = () => runSpots(c);
     $("sugAdd").onclick = () => addSpots(c);

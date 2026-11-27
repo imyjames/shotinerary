@@ -1,7 +1,7 @@
 // Keeps Shotinerary working with no signal. When a new version is published, this file changes,
 // the phone downloads the new version in the background, and the app offers "Update available".
 // Your photos and data live in the phone's database, not in this cache, so updating never touches them.
-const VERSION = "39e9a5ed4a";
+const VERSION = "647834966a";
 const CACHE = "shotinerary-" + VERSION;
 const SHELL = ["./", "index.html", "local.js", "cities.js", "manifest.webmanifest", "icon-180.png", "icon-192.png", "icon-512.png"];
 self.addEventListener("install", (e) => { e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL.map((u) => new Request(u, { cache: "reload" }))))); });
