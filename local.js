@@ -72,30 +72,45 @@
       const content = [];
       for (const im of [].concat(opts.images || [])) content.push({ type: "image", source: { type: "base64", media_type: "image/jpeg", data: await b64(await shrink(im)) } });
       content.push({ type: "text", text: prompt });
-      let r;
-      try {
-        r = await fetch("https://api.anthropic.com/v1/messages", {
-          method: "POST", signal: opts.signal,
-          headers: { "content-type": "application/json", "x-api-key": key, "anthropic-version": "2023-06-01", "anthropic-dangerous-direct-browser-access": "true" },
-          body: JSON.stringify({ model: "claude-opus-5-5", max_tokens: 16000, thinking: { type: "adaptive" }, ...(opts.effort ? { output_config: { effort: opts.effort } } : {}), messages: [{ role: "user", content }] }),
-        });
-      } catch (e) { throw { code: e && e.name === "AbortError" ? "cancelled" : "network" }; }
-      let j = null; try { j = await r.json(); } catch {}
-      if (!r.ok) {
-        const msg = ((j && j.error && j.error.message) || "").toLowerCase();
-        if (r.status === 401 || r.status === 403) throw { code: "bad_key" };
-        if (/credit|balance|billing/.test(msg)) throw { code: "no_credit" };
-        if (r.status === 429 || r.status === 529 || r.status >= 500) throw { code: "busy" };
-        if (/image/.test(msg)) throw { code: "image_rejected" };
-        throw { code: "api_error", detail: (j && j.error && j.error.message) || "error " + r.status };
+      const msgs = [{ role: "user", content }], out = [];
+      // Web search (Suggest spots): Claude looks up photographers' guides and posts itself. Never Locationscout (Jamie's rule: no competing sites).
+      const tools = opts.webSearch ? [{ type: "web_search_20260209", name: "web_search", max_uses: 6, blocked_domains: ["locationscout.net", "500px.com"] }] : null;
+      let j = null;
+      for (let turn = 0; turn < 4; turn++) {
+        let r;
+        try {
+          r = await fetch("https://api.anthropic.com/v1/messages", {
+            method: "POST", signal: opts.signal,
+            headers: { "content-type": "application/json", "x-api-key": key, "anthropic-version": "2023-06-01", "anthropic-dangerous-direct-browser-access": "true" },
+            body: JSON.stringify({ model: "claude-opus-5-5", max_tokens: 32000, thinking: { type: "adaptive" }, ...(opts.effort ? { output_config: { effort: opts.effort } } : {}), ...(tools ? { tools } : {}), messages: msgs }),
+          });
+        } catch (e) { throw { code: e && e.name === "AbortError" ? "cancelled" : "network" }; }
+        j = null; try { j = await r.json(); } catch {}
+        if (!r.ok) {
+          const msg = ((j && j.error && j.error.message) || "").toLowerCase();
+          if (r.status === 401 || r.status === 403) throw { code: "bad_key" };
+          if (/credit|balance|billing/.test(msg)) throw { code: "no_credit" };
+          if (r.status === 429 || r.status === 529 || r.status >= 500) throw { code: "busy" };
+          if (/image/.test(msg)) throw { code: "image_rejected" };
+          if (tools && /web.?search/.test(msg)) throw { code: "no_web_search", detail: (j && j.error && j.error.message) || "" };
+          throw { code: "api_error", detail: (j && j.error && j.error.message) || "error " + r.status };
+        }
+        // Claude Opus 5.5: $4 per million tokens in, $20 per million out; web searches $10 per thousand
+        const u = j.usage || {};
+        lss(SPENT, String(window.shotAISpent() + ((u.input_tokens || 0) + (u.cache_creation_input_tokens || 0)) * 4e-6 + (u.cache_read_input_tokens || 0) * 0.2e-6 + (u.output_tokens || 0) * 20e-6 + ((u.server_tool_use || {}).web_search_requests || 0) * 0.01));
+        out.push(...(j.content || []));
+        if (j.stop_reason !== "pause_turn") break; // a long search turn: let it carry on where it stopped
+        msgs.push({ role: "assistant", content: j.content });
       }
-      const u = j.usage || {}; // Claude Opus 5.5: $4 per million tokens in, $20 per million out
-      lss(SPENT, String(window.shotAISpent() + ((u.input_tokens || 0) + (u.cache_creation_input_tokens || 0)) * 4e-6 + (u.cache_read_input_tokens || 0) * 0.2e-6 + (u.output_tokens || 0) * 20e-6));
       if (j.stop_reason === "refusal") throw { code: "refused" };
-      const text = (j.content || []).filter((b) => b.type === "text").map((b) => b.text).join("\n");
+      const text = out.filter((b) => b.type === "text").map((b) => b.text).join("");
       if (!text.trim()) throw { code: "empty_completion" };
-      const a = text.indexOf("{"), z = text.lastIndexOf("}");
-      try { return JSON.parse(text.slice(a, z + 1)); } catch { throw { code: "invalid_json" }; }
+      // The answer is the last JSON object in the reply (text before it may be notes from the search).
+      for (let a = text.lastIndexOf("{\""); a >= 0; a = text.lastIndexOf("{\"", a - 1)) {
+        const z = text.lastIndexOf("}"); try { const v = JSON.parse(text.slice(a, z + 1)); if (v && typeof v === "object") return v; } catch {}
+        if (a === 0) break;
+      }
+      { const a = text.indexOf("{"), z = text.lastIndexOf("}"); try { return JSON.parse(text.slice(a, z + 1)); } catch { throw { code: "invalid_json" }; } }
     },
   };
   window.claude = { use: async (name) => { await ready; return { db, assets, sample: lsg(KEY) ? ai : null }[name] || null; } };
