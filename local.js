@@ -75,7 +75,7 @@
       const msgs = [{ role: "user", content }], out = [];
       // Web search (Suggest spots): Claude looks up photographers' guides and posts itself. Never Locationscout (Jamie's rule: no competing sites).
       const tools = opts.webSearch ? [{ type: "web_search_20260209", name: "web_search", max_uses: 6, blocked_domains: ["locationscout.net", "500px.com"] }] : null;
-      let j = null;
+      let j = null, searches = 0; ai.lastSearches = 0;
       for (let turn = 0; turn < 4; turn++) {
         let r;
         try {
@@ -97,6 +97,7 @@
         }
         // Claude Opus 5.5: $4 per million tokens in, $20 per million out; web searches $10 per thousand
         const u = j.usage || {};
+        searches += (u.server_tool_use || {}).web_search_requests || 0; ai.lastSearches = searches;
         lss(SPENT, String(window.shotAISpent() + ((u.input_tokens || 0) + (u.cache_creation_input_tokens || 0)) * 4e-6 + (u.cache_read_input_tokens || 0) * 0.2e-6 + (u.output_tokens || 0) * 20e-6 + ((u.server_tool_use || {}).web_search_requests || 0) * 0.01));
         out.push(...(j.content || []));
         if (j.stop_reason !== "pause_turn") break; // a long search turn: let it carry on where it stopped

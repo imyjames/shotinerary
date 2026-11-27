@@ -127,6 +127,7 @@ body.selecting { padding-bottom: 120px; }
 .sugrow.on .sugc { background: var(--accent); border-color: var(--accent); color: #fff; }
 .sugrow.had { opacity: .45; cursor: default; }
 .sugt { display: flex; flex-direction: column; gap: 3px; min-width: 0; } .sugt small { color: var(--muted); font-size: 13px; } .sugt .reflink { color: var(--accent); text-decoration: none; font-size: 15px; padding: 4px 0; align-self: flex-start; }
+.sugstyles { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; padding: 4px 16px 14px; } .sugstyle { padding: 0 16px 10px; text-align: center; color: var(--muted); font-size: 14px; } .sugstyle button { background: none; border: 0; color: var(--accent); font: inherit; padding: 4px; }
 .sugbar { display: flex; gap: 8px; padding: 10px 16px; border-top: 1px solid var(--line); position: sticky; bottom: 0; background: var(--sheet); } .sugbar .btn { flex: 1; }
 .sugnote { padding: 0 16px 14px; text-align: center; } .lbref { margin-top: 6px; color: var(--muted); font-size: 15px; } .lbref a { color: var(--accent); }
 .sheetbtn { background: none; border: 0; border-top: 1px solid var(--line); color: var(--accent); font: 400 18px var(--font-body); padding: 15px 16px; cursor: pointer; text-align: center; }
@@ -1389,19 +1390,37 @@ footer { color: var(--muted); font-size: 12.5px; display: flex; justify-content:
     const c = state.cities.find((x) => x.id === state.cityId); const b = document.createElement("button"); b.type = "button"; b.className = "btn tripbtn"; b.id = "suggestOpen";
     b.innerHTML = `<span>📍 Suggest spots</span><small>Best-known photo spots ›</small>`; b.onclick = () => openSuggest(c); return b;
   }
+  // Style: what Jamie likes to shoot (optional), remembered on this phone
+  const SUG_STYLES = ["Architecture", "Interiors", "Skylines", "Street", "Night", "Landscapes"];
+  function sugStyles() { try { return (JSON.parse(localStorage.getItem("shot.sugStyle") || "[]") || []).filter((x) => SUG_STYLES.includes(x)); } catch { return []; } }
+  function setSugStyles(a) { try { localStorage.setItem("shot.sugStyle", JSON.stringify(a)); } catch {} }
+  // Their taste: the names and light of places they saved themselves (all cities). Text only, never photos.
+  function tasteList() {
+    const out = [];
+    for (const c of state.cities) for (const g of knownPlaces(c.id, "")) {
+      if (!g.title || g.items.every((x) => x.suggested)) continue;
+      const ls = [...new Set(g.items.flatMap((x) => lightsOf(x)))];
+      out.push(`${g.title} (${c.name}${ls.length ? ", " + lightNames(ls) : ""})`);
+    }
+    return out.slice(0, 60);
+  }
   function spotHad(cityId, r) { const k = placeKeys({ spot: r.spot_name, placeName: r.place_name }); return knownPlaces(cityId, "").some((g) => g.items.some((x) => k.some((kk) => placeKeys(x).includes(kk)))); }
   async function askSpots(c, signal) {
-    const s = spotSugs[c.id], saved = knownPlaces(c.id, "").map((g) => g.title).slice(0, 80), listed = (s.list || []).map((r) => r.spot_name);
+    const s = spotSugs[c.id], styles = sugStyles(), taste = tasteList(), saved = knownPlaces(c.id, "").map((g) => g.title).slice(0, 80), listed = (s.list || []).map((r) => r.spot_name);
     const prompt = [
       "This is for a photography app, not a tour guide. The photographer wants the spots other photographers rate as the best shots in the city, not the top tourist sights.",
       `They are a travel, architecture and fine-art photographer planning to photograph ${c.name}${c.country && normName(c.country) !== normName(c.name) ? ", " + c.country : ""}.`,
       "List the spots there that photographers actually shoot and share: the ones that show up again and again in photographers' portfolios and on photo-spot sites. Think iconic or striking architecture (old and modern), beautiful interiors (libraries, churches, arcades, stations, museums, stairwells), skylines and viewpoints, and street and night scenes.",
+      "They want striking, iconic shots: bold or beautiful architecture, landmark views and standout interiors. Leave out pleasant but ordinary scenes (a plain jetty, a rotunda, a small park or a quiet street) unless photographers really rate them.",
+      "Always include the city's standout interiors that photographers seek out, such as grand historic library reading rooms, arcades, cathedrals, stations and stairwells, even when they're inside a library, museum or university.",
       "Leave out general tourist attractions that aren't really photo spots (zoos, shopping centres, markets, beaches or parks with no standout view, museums that are only good inside for their exhibits). If you're unsure whether photographers would travel to shoot it, leave it out.",
       "Use web search first: look at photography guides, photographers' blogs and photo-sharing posts about where to photograph this city, and use what they agree on. Don't use or name Locationscout or 500px.",
       "Missing a famous photo spot is the worst mistake. Before you answer, think through what photographers post from this city (architecture, interiors, skyline, street, night) and check that every well-known photo spot is there, including ones tourists often skip.",
       "Quality over quantity: give only the strong ones, best first. A big photo city might have 10 to 15; a smaller city might have only 5 to 8. Never pad the list. They can ask for more later.",
       "For each one, give a specific, real, publicly reachable place to stand (a street corner, bridge, deck, gallery floor, the entrance of a reading room) and what to aim at. For interiors, say where inside to stand. Use real places that exist; never invent one.",
-      saved.length || listed.length ? `Already on their list, so don't repeat these or the same landmarks seen from the same place: ${[...saved, ...listed].map((t) => `"${t}"`).join(", ")}. Different viewpoints of the same landmark are fine.` : "",
+      styles.length ? `They mostly shoot: ${styles.join(", ")}. Only suggest spots of that kind.` : "",
+      taste.length ? `Places they've saved themselves in their cities, which show their taste: ${taste.map((t) => `"${t}"`).join(", ")}. Put spots like these first, and leave out ones that don't match this taste.` : "",
+      listed.length ? `Already suggested, so don't repeat these or the same landmarks seen from the same place: ${[...new Set([...saved, ...listed])].map((t) => `"${t}"`).join(", ")}. Different viewpoints of the same landmark are fine.` : "",
       listed.length ? "They've asked for more, so give the next-best spots, still only real photo spots (fewer is fine)." : "",
       WHEN_RULES.replace("(judge from the photo itself, e.g. lit-up buildings mean night, warm side light means sunset; anytime for interiors like lobbies)", "(e.g. night for lit-up skylines, sunset for west-facing views; anytime for interiors)"),
       "Reply with only JSON, like this:",
@@ -1414,10 +1433,12 @@ footer { color: var(--muted); font-size: 12.5px; display: flex; justify-content:
     const arr = Array.isArray(j) ? j : j && Array.isArray(j.spots) ? j.spots : null;
     if (!arr) throw { code: "invalid_json" };
     const str = (v, n) => typeof v === "string" ? v.trim().slice(0, n) : "";
-    return arr.map((x) => { const r = cleanFind({ ...x, found: true }); if (!r || !r.found || !r.spot_name) return null; r.aim = str(x.aim, 200); r.why = str(x.why, 300); return r; }).filter(Boolean).slice(0, 20);
+    s.searches = (state.sample && state.sample.lastSearches) || 0;
+    return arr.map((x) => { const r = cleanFind({ ...x, found: true, camera: x && x.camera && x.camera.lat != null ? x.camera : x && x.subject }); if (!r || !r.found || !r.spot_name) return null; r.aim = str(x.aim, 200); r.why = str(x.why, 300); return r; }).filter(Boolean).slice(0, 20);
   }
-  async function runSpots(c) {
+  async function runSpots(c, fresh) {
     const s = spotSugs[c.id] = spotSugs[c.id] || { list: [], picked: new Set() };
+    if (fresh) { s.list = []; s.picked.clear(); }
     s.status = "looking"; s.error = ""; s.ctl = new AbortController(); renderSugSheet(c);
     try {
       const got = await askSpots(c, s.ctl.signal);
@@ -1430,11 +1451,21 @@ footer { color: var(--muted); font-size: 12.5px; display: flex; justify-content:
   function openSuggest(c) {
     if (!c) return; const s = spotSugs[c.id];
     const sh = $("sheet"); $("sheetGroup").dataset.sug = c.id; sh.hidden = false; sh.classList.remove("open"); void sh.offsetWidth; sh.classList.add("open"); sheetOpenedAt = 0;
-    if (!s || (!s.list.length && s.status !== "looking")) runSpots(c); else renderSugSheet(c);
+    if (!s) spotSugs[c.id] = { list: [], picked: new Set(), status: "start" };
+    else if (!s.list.length && s.status !== "looking") s.status = "start";
+    renderSugSheet(c);
   }
   function renderSugSheet(c) {
     const g = $("sheetGroup"); if ($("sheet").hidden || g.dataset.sug !== c.id) return;
     const s = spotSugs[c.id], L = (ks) => lightNames(ks);
+    if (s.status === "start") {
+      const on = sugStyles();
+      g.innerHTML = `<div class="sheettitle">Photo spots in ${esc(c.name)}<br>What do you like to shoot? Pick any, or none for everything.</div><div class="sugstyles">${SUG_STYLES.map((x) => `<button type="button" class="chip" aria-pressed="${on.includes(x)}" data-st="${x}">${x}</button>`).join("")}</div>
+        <div class="sugbar"><button type="button" class="btn primary" id="sugGo">Find spots</button></div>
+        <div class="sugnote note">Spots like the places you've already saved come first (it reads their names only, never your photos). Uses your AI credit, about 20 to 40 cents a search (estimate).</div>`;
+      g.querySelectorAll("[data-st]").forEach((b) => b.onclick = () => { const a = sugStyles(), x = b.dataset.st; setSugStyles(a.includes(x) ? a.filter((y) => y !== x) : [...a, x]); renderSugSheet(c); });
+      $("sugGo").onclick = () => runSpots(c, true); return;
+    }
     if (s.status === "looking" && !s.list.length) {
       g.innerHTML = `<div class="sheettitle">Photo spots in ${esc(c.name)}</div><div class="sugwait">Searching photographers' guides for the best photo spots in ${esc(c.name)}… this takes a minute or two.</div><button type="button" class="sheetbtn" id="sugStop">Stop</button>`;
       $("sugStop").onclick = () => s.ctl && s.ctl.abort(); return;
@@ -1446,13 +1477,14 @@ footer { color: var(--muted); font-size: 12.5px; display: flex; justify-content:
     const rows = s.list.map((r, i) => { const had = spotHad(c.id, r); if (had) s.picked.delete(i); const on = s.picked.has(i);
       return `<div role="button" tabindex="0" class="sugrow${on ? " on" : ""}${had ? " had" : ""}" data-i="${i}"${had ? ' aria-disabled="true"' : ""} aria-pressed="${on}"><span class="sugc" aria-hidden="true">✓</span><span class="sugt"><b>${esc(r.spot_name)}</b>${r.aim ? `<small>Aim at: ${esc(r.aim)}</small>` : ""}<small>${had ? "Already in your list" : esc([L(r.light), r.when].filter(Boolean).join(" · "))}</small>${refLinks(r.place_name || r.spot_name, c.name)}</span></div>`; }).join("");
     const free = s.list.map((r, i) => i).filter((i) => !spotHad(c.id, s.list[i])), n = s.picked.size, allOn = free.length && free.every((i) => s.picked.has(i));
-    g.innerHTML = `<div class="sheettitle">Photo spots in ${esc(c.name)}<br>Tick the ones you want, then tap Add.</div>${s.error ? `<div class="sugwait note warn">${esc(s.error)}</div>` : ""}${s.noWeb ? `<div class="sugwait note warn">Web search is off for your AI account, so these come from the AI's own knowledge. To turn it on: platform.claude.com, Settings, then Privacy (or Organization), Web search.</div>` : ""}<div class="suglist">${rows}</div>
+    g.innerHTML = `<div class="sheettitle">Photo spots in ${esc(c.name)}<br>Tick the ones you want, then tap Add.</div><div class="sugstyle">${esc(sugStyles().join(", ") || "All styles")} · <button type="button" id="sugStyle"${s.status === "looking" ? " disabled" : ""}>Change</button></div>${s.error ? `<div class="sugwait note warn">${esc(s.error)}</div>` : ""}${s.noWeb ? `<div class="sugwait note warn">Web search is off for your AI account, so these come from the AI's own knowledge. To turn it on: platform.claude.com, Settings, then Privacy (or Organization), Web search.</div>` : ""}<div class="suglist">${rows}</div>
       <div class="sugbar"><button type="button" class="btn ghost" id="sugAll"${free.length ? "" : " disabled"}>${allOn ? "Select none" : "Select all"}</button><button type="button" class="btn primary" id="sugAdd"${n ? "" : " disabled"}>${n ? `Add ${n} spot${n === 1 ? "" : "s"}` : "Add"}</button></div>
       <button type="button" class="sheetbtn" id="sugMore"${s.status === "looking" ? " disabled" : ""}>${s.status === "looking" ? "Looking for more…" : "Suggest more"}</button>
-      <div class="sugnote note">Found by AI from photographers' guides on the web, so check each one with See photos. Uses your AI credit, about 20 to 40 cents a search (estimate).</div>`;
+      <div class="sugnote note">${s.noWeb || !s.searches ? "Found by AI from its own knowledge (no web search ran this time)" : `Found by AI after ${s.searches} web search${s.searches === 1 ? "" : "es"} of photographers' guides`}, so check each one with See photos. Spots you already have show as Already in your list. Uses your AI credit, about 20 to 40 cents a search (estimate).</div>`;
     g.querySelectorAll(".sugrow").forEach((b) => b.onclick = (e) => { if (e.target.closest("a") || b.classList.contains("had")) return; const i = +b.dataset.i; if (s.picked.has(i)) s.picked.delete(i); else s.picked.add(i); renderSugSheet(c); });
     $("sugAll").onclick = () => { if (allOn) s.picked.clear(); else free.forEach((i) => s.picked.add(i)); renderSugSheet(c); };
     $("sugMore").onclick = () => runSpots(c);
+    $("sugStyle").onclick = () => { s.status = "start"; renderSugSheet(c); };
     $("sugAdd").onclick = () => addSpots(c);
   }
   async function addSpots(c) {
