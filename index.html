@@ -119,6 +119,16 @@ body.selecting { padding-bottom: 120px; }
 @media (prefers-reduced-motion: no-preference) { .sheet .sheetbox { transition: transform .22s ease-out; } .sheet:not(.open) .sheetbox { transform: translateY(100%); } }
 .sheetgroup { background: var(--sheet); -webkit-backdrop-filter: blur(20px); backdrop-filter: blur(20px); border-radius: 14px; overflow: auto; max-height: 65vh; display: flex; flex-direction: column; }
 .sheettitle { padding: 14px 16px; text-align: center; color: var(--muted); font-size: 13px; border-bottom: 1px solid var(--line); }
+.sugwait { padding: 16px; text-align: center; color: var(--muted); font-size: 15px; }
+.suglist { display: flex; flex-direction: column; }
+.sugrow { display: flex; gap: 12px; align-items: flex-start; text-align: left; background: none; border: 0; border-top: 1px solid var(--line); color: var(--fg); font: 15px var(--font-body); padding: 12px 16px; cursor: pointer; -webkit-user-select: none; user-select: none; }
+.sugrow:first-child { border-top: 0; }
+.sugrow .sugc { flex: none; width: 22px; height: 22px; border-radius: 50%; border: 1.5px solid var(--muted); color: transparent; font-size: 13px; line-height: 20px; text-align: center; margin-top: 1px; }
+.sugrow.on .sugc { background: var(--accent); border-color: var(--accent); color: #fff; }
+.sugrow.had { opacity: .45; cursor: default; }
+.sugt { display: flex; flex-direction: column; gap: 3px; min-width: 0; } .sugt small { color: var(--muted); font-size: 13px; }
+.sugbar { display: flex; gap: 8px; padding: 10px 16px; border-top: 1px solid var(--line); position: sticky; bottom: 0; background: var(--sheet); } .sugbar .btn { flex: 1; }
+.sugnote { padding: 0 16px 14px; text-align: center; } .lbref { margin-top: 6px; color: var(--muted); font-size: 15px; } .lbref a { color: var(--accent); }
 .sheetbtn { background: none; border: 0; border-top: 1px solid var(--line); color: var(--accent); font: 400 18px var(--font-body); padding: 15px 16px; cursor: pointer; text-align: center; }
 .sheetgroup .sheetbtn:first-child, .sheettitle + .sheetbtn { border-top: 0; }
 .sheetbtn.danger { color: var(--bad); }
@@ -566,6 +576,7 @@ footer { color: var(--muted); font-size: 12.5px; display: flex; justify-content:
     <div class="lbhead">
       <input id="lbSpot" class="titlein" type="text" data-spots placeholder="Add a spot name" aria-label="Spot name" autocomplete="off">
       <div class="lbsub" id="lbSub"></div>
+      <div class="lbref" id="lbRef" hidden></div>
       <select id="lbPlace" hidden style="display:none" aria-label="Add this photo to a place"></select>
     </div>
 
@@ -683,7 +694,13 @@ footer { color: var(--muted); font-size: 12.5px; display: flex; justify-content:
 
   // ---------- helpers ----------
   const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-  const blobUrl = (id) => (window.shotBlobUrl ? window.shotBlobUrl(id) : "/_blob/" + id);
+  // A place added without a photo (Suggest spots) shows a quiet "No photo yet" tile wherever a photo would be.
+  const NOPHOTO = "data:image/svg+xml," + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="400" height="300" viewBox="0 0 400 300"><rect width="400" height="300" fill="#1c1c1e"/><g fill="none" stroke="#8e8e93" stroke-width="6" stroke-linejoin="round"><rect x="150" y="105" width="100" height="70" rx="12"/><path d="M178 105l8-14h28l8 14"/><circle cx="200" cy="140" r="18"/></g><text x="200" y="215" text-anchor="middle" font-family="-apple-system,Helvetica,Arial" font-size="22" fill="#8e8e93">No photo yet</text></svg>');
+  const blobUrl = (id) => (!id ? NOPHOTO : window.shotBlobUrl ? window.shotBlobUrl(id) : "/_blob/" + id);
+  const hasPhoto = (p) => !!(p && (p.fullId || p.thumbId));
+  const gmImages = (name, city) => `https://www.google.com/search?tbm=isch&q=${encodeURIComponent(name + (city ? " " + city : ""))}`;
+  // "See photos of this spot": a Google Images search only (Jamie: never link to competing photo-spot sites).
+  const refLinks = (name, city) => `<a class="reflink" href="${gmImages(name, city)}" target="_blank" rel="noopener">See photos of this spot ›</a>`;
   const newId = () => (crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2));
   const lsGet = (k) => { try { return localStorage.getItem(k); } catch { return null; } };
   const lsSet = (k, v) => { try { localStorage.setItem(k, v); } catch {} };
@@ -1303,12 +1320,13 @@ footer { color: var(--muted); font-size: 12.5px; display: flex; justify-content:
       tb.innerHTML = `<span>🗓 Plan my shots</span><small>${nw ? `${nw} free time${nw === 1 ? "" : "s"} ›` : "Add when you're free ›"}</small>`;
       tb.onclick = () => openTrip(state.cityId); g.appendChild(tb);
     }
+    if (state.cityId !== UNSORTED && state.sample && !state.sampleOff) g.appendChild(suggestBtn());
     if (state.cityId !== UNSORTED) g.appendChild(cityTools());
     const ap = all.length && autoPanel(all); if (ap) g.appendChild(ap);
     if (!unnamed.length && !named.length) {
       if (state.cityId === UNSORTED) { g.insertAdjacentHTML("beforeend", `<div class="empty"><b>Nothing unsorted.</b><br>Found a photo but don't know where it is? Add it here. Claude can work out the city and place for you.</div>`); return; }
       const c = state.cities.find((x) => x.id === state.cityId);
-      g.insertAdjacentHTML("beforeend", `<div class="empty"><b>No photos in ${esc(c ? c.name : "this city")} yet.</b><br>Tap Add your photos here to start this city's shot list.</div>`);
+      g.insertAdjacentHTML("beforeend", `<div class="empty"><b>No photos in ${esc(c ? c.name : "this city")} yet.</b><br>Tap Add your photos here to start this city's shot list${state.sample && !state.sampleOff ? ", or Suggest spots for a list of the best-known photo spots" : ""}.</div>`);
       return;
     }
     // Select sits right above the photos, on the right (like the pill in Photos), and stays in view while scrolling.
@@ -1364,6 +1382,87 @@ footer { color: var(--muted); font-size: 12.5px; display: flex; justify-content:
     btn.addEventListener("contextmenu", (e) => { e.preventDefault(); closeOthers(); set(off ? 0 : -W, true); });
     row.querySelector(".sw-edit").onclick = () => { set(0, true); selectCity(c.id); editing.city = "rename"; renderGallery(); };
     row.querySelector(".sw-del").onclick = () => { set(0, true); askDeleteCity(c); };
+  }
+  // ---------- Suggest spots: the AI lists a city's best-known photo spots; you tick the ones you want ----------
+  const spotSugs = {}; // cityId -> { status: "looking"|"done"|"error", list, picked, error, ctl }
+  function suggestBtn() {
+    const c = state.cities.find((x) => x.id === state.cityId); const b = document.createElement("button"); b.type = "button"; b.className = "btn tripbtn"; b.id = "suggestOpen";
+    b.innerHTML = `<span>📍 Suggest spots</span><small>Best-known photo spots ›</small>`; b.onclick = () => openSuggest(c); return b;
+  }
+  function spotHad(cityId, r) { const k = placeKeys({ spot: r.spot_name, placeName: r.place_name }); return knownPlaces(cityId, "").some((g) => g.items.some((x) => k.some((kk) => placeKeys(x).includes(kk)))); }
+  async function askSpots(c, signal) {
+    const s = spotSugs[c.id], saved = knownPlaces(c.id, "").map((g) => g.title).slice(0, 80), listed = (s.list || []).map((r) => r.spot_name);
+    const prompt = [
+      `A travel, architecture and fine-art photographer is planning to photograph ${c.name}${c.country && normName(c.country) !== normName(c.name) ? ", " + c.country : ""}.`,
+      "List the 12 to 15 best-known, most photographed photo spots there: landmarks, skylines, architecture and classic viewpoints that photographers travel for.",
+      "For each one, give a specific, real, publicly reachable place to stand (a park, bridge, rooftop bar, deck, street corner) and what to aim at. Use real places that exist; never invent one.",
+      saved.length || listed.length ? `Already on their list, so don't repeat these or the same landmarks seen from the same place: ${[...saved, ...listed].map((t) => `"${t}"`).join(", ")}. Different viewpoints of the same landmark are fine.` : "",
+      WHEN_RULES.replace("(judge from the photo itself, e.g. lit-up buildings mean night, warm side light means sunset; anytime for interiors like lobbies)", "(e.g. night for lit-up skylines, sunset for west-facing views; anytime for interiors)"),
+      "Reply with only JSON, like this:",
+      '{"spots": [{"place_name": "Marina Bay Sands", "spot_name": "Marina Bay Sands, from Merlion Park", "aim": "The hotel and the bay, with the Merlion in front", "camera": {"lat": 1.28680, "lng": 103.85450}, "subject": {"lat": 1.28340, "lng": 103.86070}, "confidence": "high", "best_light": ["sunset", "night"], "when_to_go": "Blue hour after sunset, when the towers light up. Busy in the evening: arrive early for a spot at the rail.", "why": "The classic Singapore skyline view.", "timezone": "Asia/Singapore"}]}',
+      'place_name is the main landmark as Google Maps names it. spot_name is "Main landmark, from where to stand". camera is where to stand. confidence is how sure you are of the exact spot: "high", "medium" or "low".',
+    ].filter(Boolean).join("\n");
+    const j = await state.sample.json(prompt, { modelTier: "complex", signal });
+    const arr = Array.isArray(j) ? j : j && Array.isArray(j.spots) ? j.spots : null;
+    if (!arr) throw { code: "invalid_json" };
+    const str = (v, n) => typeof v === "string" ? v.trim().slice(0, n) : "";
+    return arr.map((x) => { const r = cleanFind({ ...x, found: true }); if (!r || !r.found || !r.spot_name) return null; r.aim = str(x.aim, 200); r.why = str(x.why, 300); return r; }).filter(Boolean).slice(0, 20);
+  }
+  async function runSpots(c) {
+    const s = spotSugs[c.id] = spotSugs[c.id] || { list: [], picked: new Set() };
+    s.status = "looking"; s.error = ""; s.ctl = new AbortController(); renderSugSheet(c);
+    try {
+      const got = await askSpots(c, s.ctl.signal);
+      const seen = new Set(s.list.map((r) => normName(r.spot_name)));
+      s.list = s.list.concat(got.filter((r) => !seen.has(normName(r.spot_name))));
+      s.status = "done"; if (!got.length) s.error = "No new spots came back. Try again, or add your own photos.";
+    } catch (e) { const code = e && e.code; s.status = s.list.length ? "done" : "error"; if (code !== "cancelled") s.error = SAMPLE_OFF.includes(code) ? "The AI isn't available here." : sampleErrorText(code, e); }
+    renderSugSheet(c);
+  }
+  function openSuggest(c) {
+    if (!c) return; const s = spotSugs[c.id];
+    const sh = $("sheet"); $("sheetGroup").dataset.sug = c.id; sh.hidden = false; sh.classList.remove("open"); void sh.offsetWidth; sh.classList.add("open"); sheetOpenedAt = 0;
+    if (!s || (!s.list.length && s.status !== "looking")) runSpots(c); else renderSugSheet(c);
+  }
+  function renderSugSheet(c) {
+    const g = $("sheetGroup"); if ($("sheet").hidden || g.dataset.sug !== c.id) return;
+    const s = spotSugs[c.id], L = (ks) => lightNames(ks);
+    if (s.status === "looking" && !s.list.length) {
+      g.innerHTML = `<div class="sheettitle">Photo spots in ${esc(c.name)}</div><div class="sugwait">Looking up the best-known photo spots in ${esc(c.name)}… this can take up to a minute.</div><button type="button" class="sheetbtn" id="sugStop">Stop</button>`;
+      $("sugStop").onclick = () => s.ctl && s.ctl.abort(); return;
+    }
+    if (s.status === "error") {
+      g.innerHTML = `<div class="sheettitle">Photo spots in ${esc(c.name)}</div><div class="sugwait note bad">${esc(s.error)}</div><button type="button" class="sheetbtn" id="sugAgain">Try again</button>`;
+      $("sugAgain").onclick = () => runSpots(c); return;
+    }
+    const rows = s.list.map((r, i) => { const had = spotHad(c.id, r); if (had) s.picked.delete(i); const on = s.picked.has(i);
+      return `<button type="button" class="sugrow${on ? " on" : ""}${had ? " had" : ""}" data-i="${i}"${had ? " disabled" : ""} aria-pressed="${on}"><span class="sugc" aria-hidden="true">✓</span><span class="sugt"><b>${esc(r.spot_name)}</b>${r.aim ? `<small>Aim at: ${esc(r.aim)}</small>` : ""}<small>${had ? "Already in your list" : esc([L(r.light), r.when].filter(Boolean).join(" · "))}</small></span></button>`; }).join("");
+    const free = s.list.map((r, i) => i).filter((i) => !spotHad(c.id, s.list[i])), n = s.picked.size, allOn = free.length && free.every((i) => s.picked.has(i));
+    g.innerHTML = `<div class="sheettitle">Photo spots in ${esc(c.name)}<br>Tick the ones you want, then tap Add.</div>${s.error ? `<div class="sugwait note warn">${esc(s.error)}</div>` : ""}<div class="suglist">${rows}</div>
+      <div class="sugbar"><button type="button" class="btn ghost" id="sugAll"${free.length ? "" : " disabled"}>${allOn ? "Select none" : "Select all"}</button><button type="button" class="btn primary" id="sugAdd"${n ? "" : " disabled"}>${n ? `Add ${n} spot${n === 1 ? "" : "s"}` : "Add"}</button></div>
+      <button type="button" class="sheetbtn" id="sugMore"${s.status === "looking" ? " disabled" : ""}>${s.status === "looking" ? "Looking for more…" : "Suggest more"}</button>
+      <div class="sugnote note">Suggested by AI from what it knows, so check each one. Uses your AI credit, a few cents a time.</div>`;
+    g.querySelectorAll(".sugrow").forEach((b) => b.onclick = () => { const i = +b.dataset.i; if (s.picked.has(i)) s.picked.delete(i); else s.picked.add(i); renderSugSheet(c); });
+    $("sugAll").onclick = () => { if (allOn) s.picked.clear(); else free.forEach((i) => s.picked.add(i)); renderSugSheet(c); };
+    $("sugMore").onclick = () => runSpots(c);
+    $("sugAdd").onclick = () => addSpots(c);
+  }
+  async function addSpots(c) {
+    const s = spotSugs[c.id], pick = [...s.picked].sort((a, b) => a - b).map((i) => s.list[i]).filter((r) => r && !spotHad(c.id, r));
+    closeSheet(); let n = 0;
+    for (const r of pick) {
+      const doc = { cityId: c.id, spot: r.spot_name, star: false, fullId: null, thumbId: null, w: 4, h: 3, noPhoto: true, suggested: true, name: "", createdAt: new Date().toISOString(),
+        cam: r.camera, camApprox: r.confidence !== "high", locSource: "suggested" };
+      if (r.place_name) doc.placeName = r.place_name;
+      if (r.subject) { doc.subj = r.subject; doc.facing = Math.round(bearing(r.camera, r.subject)); }
+      if (r.light && r.light.length) doc.lights = r.light;
+      if (r.when) doc.when = r.when;
+      const notes = [r.aim ? "Aim at: " + r.aim : "", r.why].filter(Boolean).join("\n"); if (notes) doc.notes = notes;
+      try { await withRetry(() => state.db.collection("photos").doc(newId()).set(doc)); n++; } catch (e) { toast("Couldn't add " + r.spot_name + ". " + errText(e)); }
+    }
+    s.picked.clear();
+    const tz = (pick.find((r) => r.tz) || {}).tz; if (tz) await saveCityTz(c.id, tz);
+    if (n) toast(`Added ${n} spot${n === 1 ? "" : "s"}. Open one and tap See photos of this spot to find a reference.`);
   }
   function cityTools() {
     const c = state.cities.find((x) => x.id === state.cityId); const el = document.createElement("div"); el.className = "tools";
@@ -1498,6 +1597,7 @@ footer { color: var(--muted); font-size: 12.5px; display: flex; justify-content:
     $("lbShot").textContent = p.shot ? "✓" : "○"; $("lbShot").classList.toggle("on", !!p.shot); $("lbShot").setAttribute("aria-pressed", String(!!p.shot)); $("lbShot").setAttribute("aria-label", p.shot ? "Shot. Tap if you need to reshoot" : "Mark as shot");
     $("lbStar").hidden = true;
     $("lbStar").setAttribute("aria-pressed", String(!!p.star)); $("lbStar").setAttribute("aria-label", p.star ? "Remove Must-have" : "Mark as Must-have");
+    { const r = $("lbRef"); r.hidden = hasPhoto(p); r.innerHTML = hasPhoto(p) ? "" : `No photo yet. ${refLinks(p.placeName || splitSpot(p.spot).landmark || p.spot || "", cityName(p.cityId) || "")}`; }
     $("lbSub").textContent = [isStar(p) ? "★ Must-have" : "", cityName(p.cityId) || "Unsorted"].filter(Boolean).join(" · ");
     const groups = placeGroups(cityPhotos(p.cityId));
     const mine = groups.find((g) => g.items.some((x) => x.id === p.id));
@@ -1517,7 +1617,7 @@ footer { color: var(--muted); font-size: 12.5px; display: flex; justify-content:
     if (full) { $("locInput").value = ""; $("faceInput").value = ""; setNote("locNote", ""); setNote("faceNote", ""); $("faceDir").value = ""; }
     const h = facingOf(p);
     if (hasLoc(p)) {
-      const src = { claude: "suggested by Claude, you confirmed", pasted: "from your link", spot: "copied from the same spot" }[p.locSource] || "";
+      const src = { claude: "suggested by Claude, you confirmed", suggested: "suggested by AI (Suggest spots), check it", pasted: "from your link", spot: "copied from the same spot" }[p.locSource] || "";
       const pl = placeLabel(p), cityName = (state.cities.find((c) => c.id === p.cityId) || {}).name || "";
       $("locView").innerHTML = `${pl ? `<div class="placename">${esc(pl)}</div>` : ""}
         <div class="note">${p.placeUrl ? "Saved from your Google Maps link." : `Location saved${src ? `, ${esc(src)}` : ""}.`}${p.cam ? ` <span class="loc"><small>${p.cam.lat.toFixed(5)}, ${p.cam.lng.toFixed(5)}</small></span>` : ""}</div>
@@ -1525,7 +1625,7 @@ footer { color: var(--muted); font-size: 12.5px; display: flex; justify-content:
           ? `<a class="primary" id="openPlace" href="${esc(p.placeUrl)}" target="_blank" rel="noopener">Open ${esc(pl && pl.length <= 26 ? pl : "your place")} in Google Maps</a>`
           : pl
           ? `<a class="primary" id="dirPlace" href="${gmDirPlace(pl, cityName)}" target="_blank" rel="noopener">Directions to ${esc(pl.length > 26 ? "the place" : pl)}</a><a id="openPlace" href="${gmPlace(pl, cityName)}" target="_blank" rel="noopener">Open in Google Maps</a>`
-          : `<a class="primary" id="dirSpot" href="${gmDirections(p.cam)}" target="_blank" rel="noopener">Directions</a><a href="${gmOpen(p.cam)}" target="_blank" rel="noopener">Open in Google Maps</a>`}<button class="btn ghost" id="locClear" type="button">Remove location</button></div>
+          : `<a class="primary" id="dirSpot" href="${gmDirections(p.cam)}" target="_blank" rel="noopener">Directions</a><a href="${gmOpen(p.cam)}" target="_blank" rel="noopener">Open in Google Maps</a>`}<button class="btn ghost" id="locClear" type="button">Remove location</button></div>${p.spot || pl ? `<div class="note" style="margin-top:6px">${refLinks(pl || p.spot, cityName)}</div>` : ""}
         ${p.placeUrl ? "" : `<div class="note" style="margin-top:6px">Not the right place? Paste your own Google Maps link below. It always wins.</div>`}`;
       $("locClear").onclick = () => setPlace(p, { cam: null, camApprox: false, locSource: null, subj: null, facing: null, placeName: null, placeUrl: null });
       if (state.locNoteFor !== JSON.stringify(p.cam || p.placeUrl)) setNote("locNote", "");
@@ -1563,7 +1663,7 @@ footer { color: var(--muted); font-size: 12.5px; display: flex; justify-content:
       $("whenSkip").onclick = () => updatePhoto(p.id, { whenSuggest: null, whenTried: { at: new Date().toISOString(), rejected: true } });
       return;
     }
-    const canAsk = state.sample && !state.sampleOff && (p.spot || "").trim() && !(p.when || "").trim();
+    const canAsk = hasPhoto(p) && state.sample && !state.sampleOff && (p.spot || "").trim() && !(p.when || "").trim();
     w.innerHTML = (busy && busy !== "looking" ? `<div class="note bad">${esc(busy)}</div>` : "") + (canAsk ? `<button class="btn sm" id="whenAsk" type="button">Suggest when to go with Claude</button>` : "");
     const a = $("whenAsk"); if (a) a.onclick = async () => {
       whenAsks[p.id] = "looking"; renderWhen(p);
@@ -1687,6 +1787,7 @@ footer { color: var(--muted); font-size: 12.5px; display: flex; justify-content:
   }
   function renderFind(p) {
     const w = $("findWrap");
+    if (!hasPhoto(p)) { const cn = (state.cities.find((c) => c.id === p.cityId) || {}).name || ""; w.innerHTML = `<div class="note">No photo for this spot yet.<br>${refLinks(p.placeName || splitSpot(p.spot).landmark || p.spot || "", cn)}</div>`; return; }
     if (!state.sample || state.sampleOff) { w.innerHTML = state.sampleOff ? `<div class="note">Find this spot isn't available here (${esc(state.sampleOff)}).</div>` : window.SHOT_LOCAL && !hasLoc(p) ? `<div class="note">To let the app find this spot for you, add your AI key under Photo finder at the bottom of the home page. Or paste a Google Maps link below.</div>` : ""; return; }
     let f = finds[p.id];
     if (!f && toConfirm(p)) f = finds[p.id] = { status: "done", result: p.suggest };
@@ -1908,7 +2009,7 @@ footer { color: var(--muted); font-size: 12.5px; display: flex; justify-content:
     }
     auto.running = false; renderGallery();
   }
-  const needsWhen = (p) => !!(p.spot || "").trim() && !(p.when || "").trim() && !p.whenSuggest && !p.whenTried;
+  const needsWhen = (p) => hasPhoto(p) && !!(p.spot || "").trim() && !(p.when || "").trim() && !p.whenSuggest && !p.whenTried;
   const whenPending = (p) => !!p.whenSuggest;
   async function runWhenAll() {
     if (auto.running || !state.sample || state.sampleOff) return;
