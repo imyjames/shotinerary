@@ -1393,16 +1393,21 @@ footer { color: var(--muted); font-size: 12.5px; display: flex; justify-content:
   async function askSpots(c, signal) {
     const s = spotSugs[c.id], saved = knownPlaces(c.id, "").map((g) => g.title).slice(0, 80), listed = (s.list || []).map((r) => r.spot_name);
     const prompt = [
-      `A travel, architecture and fine-art photographer is planning to photograph ${c.name}${c.country && normName(c.country) !== normName(c.name) ? ", " + c.country : ""}.`,
-      "List the 12 to 15 best-known, most photographed photo spots there: landmarks, skylines, architecture and classic viewpoints that photographers travel for.",
-      "For each one, give a specific, real, publicly reachable place to stand (a park, bridge, rooftop bar, deck, street corner) and what to aim at. Use real places that exist; never invent one.",
+      "This is for a photography app, not a tour guide. The photographer wants the spots other photographers rate as the best shots in the city, not the top tourist sights.",
+      `They are a travel, architecture and fine-art photographer planning to photograph ${c.name}${c.country && normName(c.country) !== normName(c.name) ? ", " + c.country : ""}.`,
+      "List the spots there that photographers actually shoot and share: the ones that show up again and again in photographers' portfolios and on photo-spot sites. Think iconic or striking architecture (old and modern), beautiful interiors (libraries, churches, arcades, stations, museums, stairwells), skylines and viewpoints, and street and night scenes.",
+      "Leave out general tourist attractions that aren't really photo spots (zoos, shopping centres, markets, beaches or parks with no standout view, museums that are only good inside for their exhibits). If you're unsure whether photographers would travel to shoot it, leave it out.",
+      "Missing a famous photo spot is the worst mistake. Before you answer, think through what photographers post from this city (architecture, interiors, skyline, street, night) and check that every well-known photo spot is there, including ones tourists often skip.",
+      "Quality over quantity: give only the strong ones, best first. A big photo city might have 10 to 15; a smaller city might have only 5 to 8. Never pad the list. They can ask for more later.",
+      "For each one, give a specific, real, publicly reachable place to stand (a street corner, bridge, deck, gallery floor, the entrance of a reading room) and what to aim at. For interiors, say where inside to stand. Use real places that exist; never invent one.",
       saved.length || listed.length ? `Already on their list, so don't repeat these or the same landmarks seen from the same place: ${[...saved, ...listed].map((t) => `"${t}"`).join(", ")}. Different viewpoints of the same landmark are fine.` : "",
+      listed.length ? "They've asked for more, so give the next-best spots, still only real photo spots (fewer is fine)." : "",
       WHEN_RULES.replace("(judge from the photo itself, e.g. lit-up buildings mean night, warm side light means sunset; anytime for interiors like lobbies)", "(e.g. night for lit-up skylines, sunset for west-facing views; anytime for interiors)"),
       "Reply with only JSON, like this:",
       '{"spots": [{"place_name": "Marina Bay Sands", "spot_name": "Marina Bay Sands, from Merlion Park", "aim": "The hotel and the bay, with the Merlion in front", "camera": {"lat": 1.28680, "lng": 103.85450}, "subject": {"lat": 1.28340, "lng": 103.86070}, "confidence": "high", "best_light": ["sunset", "night"], "when_to_go": "Blue hour after sunset, when the towers light up. Busy in the evening: arrive early for a spot at the rail.", "why": "The classic Singapore skyline view.", "timezone": "Asia/Singapore"}]}',
       'place_name is the main landmark as Google Maps names it. spot_name is "Main landmark, from where to stand". camera is where to stand. confidence is how sure you are of the exact spot: "high", "medium" or "low".',
     ].filter(Boolean).join("\n");
-    const j = await state.sample.json(prompt, { modelTier: "complex", signal });
+    const j = await state.sample.json(prompt, { modelTier: "complex", effort: "high", signal });
     const arr = Array.isArray(j) ? j : j && Array.isArray(j.spots) ? j.spots : null;
     if (!arr) throw { code: "invalid_json" };
     const str = (v, n) => typeof v === "string" ? v.trim().slice(0, n) : "";

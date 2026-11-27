@@ -77,7 +77,7 @@
         r = await fetch("https://api.anthropic.com/v1/messages", {
           method: "POST", signal: opts.signal,
           headers: { "content-type": "application/json", "x-api-key": key, "anthropic-version": "2023-06-01", "anthropic-dangerous-direct-browser-access": "true" },
-          body: JSON.stringify({ model: "claude-opus-5-5", max_tokens: 16000, thinking: { type: "adaptive" }, messages: [{ role: "user", content }] }),
+          body: JSON.stringify({ model: "claude-opus-5-5", max_tokens: 16000, thinking: { type: "adaptive" }, ...(opts.effort ? { output_config: { effort: opts.effort } } : {}), messages: [{ role: "user", content }] }),
         });
       } catch (e) { throw { code: e && e.name === "AbortError" ? "cancelled" : "network" }; }
       let j = null; try { j = await r.json(); } catch {}
